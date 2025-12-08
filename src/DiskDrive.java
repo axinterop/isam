@@ -8,6 +8,8 @@ public class DiskDrive {
     static final String RECORDS_FILE = "records.dat";
     static final String BTREE_FILE = "btree.dat";
 
+    static final int BTREE_PAGE_SIZE_ORDER_2 = 56;  // For order=2: 4 + 4*8 + 5*4 = 56 bytes
+
     private final int PAGE_SIZE = 4;
     static boolean CONTROL = false;
     static int MAX_TO_PRINT = 50;
@@ -216,6 +218,52 @@ public class DiskDrive {
         fc.dirty = true;
 //            }
 //            flushCachedPageIfDirty(file);
+    }
+
+    /**
+     * Write a BTree page (serialized as byte array) to BTREE_FILE at given page number
+     */
+    public void writeBTreePage(Main.File fileType, int pageNumber, byte[] pageData) throws IOException {
+        if (fileType != Main.File.BTREE) {
+            throw new IllegalArgumentException("writeBTreePage only supports BTREE file");
+        }
+
+        RandomAccessFile raf = getRaf(fileType);
+        long filePosition = (long) pageNumber * BTREE_PAGE_SIZE_ORDER_2;
+
+        raf.seek(filePosition);
+        raf.write(pageData, 0, pageData.length);
+
+        pageWriteCount++;
+    }
+
+    /**
+     * Read a BTree page from BTREE_FILE at given page number
+     * Returns null if page doesn't exist (beyond EOF)
+     */
+    public byte[] readBTreePage(Main.File fileType, int pageNumber) throws IOException {
+        if (fileType != Main.File.BTREE) {
+            throw new IllegalArgumentException("readBTreePage only supports BTREE file");
+        }
+
+        RandomAccessFile raf = getRaf(fileType);
+        long filePosition = (long) pageNumber * BTREE_PAGE_SIZE_ORDER_2;
+
+        // Check if page is beyond file size
+        if (filePosition + BTREE_PAGE_SIZE_ORDER_2 > raf.length()) {
+            return null;  // Page doesn't exist yet
+        }
+
+        raf.seek(filePosition);
+        byte[] pageData = new byte[BTREE_PAGE_SIZE_ORDER_2];
+        int bytesRead = raf.read(pageData);
+
+        if (bytesRead < BTREE_PAGE_SIZE_ORDER_2) {
+            throw new IOException("Failed to read complete BTree page");
+        }
+
+        pageReadCount++;
+        return pageData;
     }
 
     public void printDisk(Main.File filetype) throws IOException {
