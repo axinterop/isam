@@ -18,11 +18,13 @@ public class Main {
         BTree bt = new BTree(2);
 
         int key = 100;
+        System.out.println(bt.getDiskStats());
+
         bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
         bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
         bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
         bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
-        Record r = bt.getRecord(1);
+        Record r = bt.getRecord(100);
 
         System.out.println(bt.getDiskStats());
         System.out.println("Record " + r);

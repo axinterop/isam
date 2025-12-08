@@ -18,12 +18,15 @@ public class DiskDrive {
     private final int pageSize;
     private final Map<Main.File, RandomAccessFile> rafs = new HashMap<>();
 
-    private static class FileCache {
-        int pageIndex = -1;
-        Record[] page = null;
-        int filledPage = 0;
-        boolean dirty = false;
-    }
+    // Record file cache
+    private int recordCachePageIndex = -1;
+    private Record[] recordCachePage = null;
+    private boolean recordCacheDirty = false;
+
+    // BTree file cache
+    private int btreeCachePageIndex = -1;
+    private byte[] btreeCachePage = null;
+    private boolean btreeCacheDirty = false;
 
     public class DiskStats {
         public long pageReadCount = 0;
@@ -40,8 +43,6 @@ public class DiskDrive {
             );
         }
     }
-
-    private final Map<Main.File, FileCache> caches = new HashMap<>();
 
     public long pageReadCount = 0;
     public long pageWriteCount = 0;
@@ -77,28 +78,29 @@ public class DiskDrive {
         return raf;
     }
 
-    private FileCache getCache(Main.File fileType) {
-        return caches.computeIfAbsent(fileType, f -> new FileCache());
-    }
-
     public void deleteContent(Main.File fileType) throws IOException {
-        FileCache fc = getCache(fileType);
-        fc.dirty = false;
-        fc.page = new Record[PAGE_SIZE];
-        for (int i = 0; i < PAGE_SIZE; i++) {
-            fc.page[i] = null;
+        if (fileType == Main.File.RECORDS) {
+            recordCachePage = new Record[pageSize];
+            recordCachePageIndex = -1;
+            recordCacheDirty = false;
+        } else if (fileType == Main.File.BTREE) {
+            btreeCachePage = null;
+            btreeCachePageIndex = -1;
+            btreeCacheDirty = false;
         }
-        fc.filledPage = 0;
-        fc.pageIndex = -1;
+
         RandomAccessFile raf = getRaf(fileType);
         raf.setLength(0);
     }
 
     public void printFull(Main.File fileType) throws IOException {
         this.printDisk(fileType);
-        FileCache fc = getCache(fileType);
-        for (Record r : fc.page) {
-            System.out.println("[P] " + r);
+        if (fileType == Main.File.RECORDS) {
+            if (recordCachePage != null) {
+                for (Record r : recordCachePage) {
+                    System.out.println("[P] " + r);
+                }
+            }
         }
     }
 
@@ -117,18 +119,17 @@ public class DiskDrive {
 
     // ---- cache helpers ----
 
-    private void flushCachedPageIfDirty(Main.File fileType) throws IOException {
-        FileCache fc = getCache(fileType);
-        if (
-            fc == null || fc.page == null || !fc.dirty || fc.pageIndex < 0
-        ) return;
+    private void flushRecordCacheIfDirty() throws IOException {
+        if (!recordCacheDirty || recordCachePage == null || recordCachePageIndex < 0) {
+            return;
+        }
 
-        RandomAccessFile raf = getRaf(fileType);
-        long firstByteOfPage = (long) fc.pageIndex * pageSize * Record.sizeBytes();
+        RandomAccessFile raf = getRaf(Main.File.RECORDS);
+        long firstByteOfPage = (long) recordCachePageIndex * pageSize * Record.sizeBytes();
         raf.seek(firstByteOfPage);
 
         for (int i = 0; i < pageSize; i++) {
-            Record r = fc.page[i];
+            Record r = recordCachePage[i];
             if (r == null) {
                 break;
             } else {
@@ -139,36 +140,31 @@ public class DiskDrive {
         }
 
         pageWriteCount++;
-        fc.dirty = false;
-        fc.filledPage = 0;
+        recordCacheDirty = false;
     }
 
-    private void loadPageIntoCache(Main.File filetype, int pageIndex)
-        throws IOException {
-        FileCache fc = getCache(filetype);
-        if (fc.page != null && fc.pageIndex == pageIndex) {
+    private void loadRecordPageIntoCache(int pageIndex) throws IOException {
+        if (recordCachePage != null && recordCachePageIndex == pageIndex) {
             return;
         }
-        flushCachedPageIfDirty(filetype);
 
-        RandomAccessFile raf = getRaf(filetype);
+        flushRecordCacheIfDirty();
+
+        RandomAccessFile raf = getRaf(Main.File.RECORDS);
         long fileByteLength = raf.length();
         long firstByteOfPage = (long) pageIndex * pageSize * Record.sizeBytes();
 
-        if (fc.page == null || fc.page.length != pageSize) {
-            fc.page = new Record[pageSize];
+        if (recordCachePage == null || recordCachePage.length != pageSize) {
+            recordCachePage = new Record[pageSize];
         } else {
-            Arrays.fill(fc.page, null);
+            Arrays.fill(recordCachePage, null);
         }
-
-        // Page beyond EOF -> all nulls
-        // ...
 
         raf.seek(firstByteOfPage);
         for (int i = 0; i < pageSize; i++) {
             long pos = firstByteOfPage + (long) i * Record.sizeBytes();
             if (pos + Record.sizeBytes() > fileByteLength) {
-                fc.page[i] = null;
+                recordCachePage[i] = null;
             } else {
                 try {
                     double a = raf.readDouble();
@@ -178,46 +174,82 @@ public class DiskDrive {
                     r.a = a;
                     r.b = b;
                     r.h = h;
-                    fc.page[i] = r;
+                    recordCachePage[i] = r;
                 } catch (EOFException e) {
-                    fc.page[i] = null;
+                    recordCachePage[i] = null;
                 }
             }
         }
 
         pageReadCount++;
-        fc.pageIndex = pageIndex;
-        fc.dirty = false;
+        recordCachePageIndex = pageIndex;
+        recordCacheDirty = false;
+    }
+
+    private void flushBTreeCacheIfDirty() throws IOException {
+        if (!btreeCacheDirty || btreeCachePage == null || btreeCachePageIndex < 0) {
+            return;
+        }
+
+        RandomAccessFile raf = getRaf(Main.File.BTREE);
+        long filePosition = (long) btreeCachePageIndex * BTREE_PAGE_SIZE_ORDER_2;
+        raf.seek(filePosition);
+        raf.write(btreeCachePage, 0, btreeCachePage.length);
+
+        pageWriteCount++;
+        btreeCacheDirty = false;
+    }
+
+    private void loadBTreePageIntoCache(int pageNumber) throws IOException {
+        if (btreeCachePage != null && btreeCachePageIndex == pageNumber) {
+            return;
+        }
+
+        flushBTreeCacheIfDirty();
+
+        RandomAccessFile raf = getRaf(Main.File.BTREE);
+        long filePosition = (long) pageNumber * BTREE_PAGE_SIZE_ORDER_2;
+
+        // Check if page is beyond file size
+        if (filePosition + BTREE_PAGE_SIZE_ORDER_2 > raf.length()) {
+            btreeCachePage = null;
+            btreeCachePageIndex = pageNumber;
+            btreeCacheDirty = false;
+            return;
+        }
+
+        btreeCachePage = new byte[BTREE_PAGE_SIZE_ORDER_2];
+        raf.seek(filePosition);
+        int bytesRead = raf.read(btreeCachePage);
+
+        if (bytesRead < BTREE_PAGE_SIZE_ORDER_2) {
+            throw new IOException("Failed to read complete BTree page");
+        }
+
+        pageReadCount++;
+        btreeCachePageIndex = pageNumber;
+        btreeCacheDirty = false;
     }
 
     // ---- public ----
 
-    public Record readRecord(Main.File filetype, long recordIndex)
-        throws IOException {
+    public Record readRecord(Main.File filetype, long recordIndex) throws IOException {
         if (recordIndex < 0) return null;
-
         int pageIndex = (int) (recordIndex / pageSize);
         int offsetInPage = (int) (recordIndex % pageSize);
+        loadRecordPageIntoCache(pageIndex);
 
-        loadPageIntoCache(filetype, pageIndex);
-        FileCache fc = getCache(filetype);
-        if (fc.page == null) return null;
-        return fc.page[offsetInPage];
+        if (recordCachePage == null) return null;
+        return recordCachePage[offsetInPage];
     }
 
-    public void writeRecord(Main.File filetype, Record r)
-        throws IOException {
+    public void writeRecord(Main.File filetype, Record r) throws IOException {
         int pageIndex = (int) (r.id / pageSize);
         int offsetInPage = (int) (r.id % pageSize);
+        loadRecordPageIntoCache(pageIndex);
 
-        loadPageIntoCache(filetype, pageIndex);
-        FileCache fc = getCache(filetype);
-        fc.page[offsetInPage] = r;
-//            fc.filledPage++;
-//            if (fc.filledPage == PAGE_SIZE) {
-        fc.dirty = true;
-//            }
-//            flushCachedPageIfDirty(file);
+        recordCachePage[offsetInPage] = r;
+        recordCacheDirty = true;
     }
 
     /**
@@ -228,13 +260,10 @@ public class DiskDrive {
             throw new IllegalArgumentException("writeBTreePage only supports BTREE file");
         }
 
-        RandomAccessFile raf = getRaf(fileType);
-        long filePosition = (long) pageNumber * BTREE_PAGE_SIZE_ORDER_2;
-
-        raf.seek(filePosition);
-        raf.write(pageData, 0, pageData.length);
-
-        pageWriteCount++;
+        // Load into cache and mark dirty
+        loadBTreePageIntoCache(pageNumber);
+        btreeCachePage = pageData.clone();
+        btreeCacheDirty = true;
     }
 
     /**
@@ -246,24 +275,13 @@ public class DiskDrive {
             throw new IllegalArgumentException("readBTreePage only supports BTREE file");
         }
 
-        RandomAccessFile raf = getRaf(fileType);
-        long filePosition = (long) pageNumber * BTREE_PAGE_SIZE_ORDER_2;
+        loadBTreePageIntoCache(pageNumber);
 
-        // Check if page is beyond file size
-        if (filePosition + BTREE_PAGE_SIZE_ORDER_2 > raf.length()) {
-            return null;  // Page doesn't exist yet
+        if (btreeCachePage == null) {
+            return null;
         }
 
-        raf.seek(filePosition);
-        byte[] pageData = new byte[BTREE_PAGE_SIZE_ORDER_2];
-        int bytesRead = raf.read(pageData);
-
-        if (bytesRead < BTREE_PAGE_SIZE_ORDER_2) {
-            throw new IOException("Failed to read complete BTree page");
-        }
-
-        pageReadCount++;
-        return pageData;
+        return btreeCachePage.clone();
     }
 
     public void printDisk(Main.File filetype) throws IOException {
@@ -276,7 +294,6 @@ public class DiskDrive {
                 new BufferedInputStream(new FileInputStream(getFileFromFileType(filetype)))
             )
         ) {
-
             System.out.println("\nPRINT DISK: " + getFileFromFileType(filetype));
             int i = 1;
             while (true) {
@@ -304,12 +321,9 @@ public class DiskDrive {
     }
 
     public void flush() throws IOException {
-        for (FileCache fc : caches.values()) {
-            fc.dirty = true;
-        }
-        for (Main.File filetype : caches.keySet()) {
-            flushCachedPageIfDirty(filetype);
-        }
+        flushRecordCacheIfDirty();
+        flushBTreeCacheIfDirty();
+
         if (CONTROL) {
             System.out.println("[i] Disk has been flushed");
         }
@@ -320,8 +334,9 @@ public class DiskDrive {
         for (RandomAccessFile raf : rafs.values()) {
             raf.close();
         }
+
         rafs.clear();
-        caches.clear();
+
         if (CONTROL) {
             System.out.println("[i] Disk has been closed");
         }

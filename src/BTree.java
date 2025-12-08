@@ -230,8 +230,6 @@ public class BTree {
         // Step 5: Write root page back to disk
         writeBTreePage(rootPage);
 
-        // Flush to ensure data is written
-        disk.flush();
     }
 
     /**
