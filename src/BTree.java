@@ -28,6 +28,16 @@ public class BTree {
         }
     }
 
+    private class SearchResult {
+        int recordAddress;  // -1 if not found
+        int childPagePointer;  // which child to follow if not found
+
+        SearchResult(int recordAddress, int childPagePointer) {
+            this.recordAddress = recordAddress;
+            this.childPagePointer = childPagePointer;
+        }
+    }
+
 
     public class BTreePage {
         // Metadata
@@ -280,32 +290,82 @@ public class BTree {
         return nextPageNumber++;
     }
 
+    /**
+     * Get a record by key using BTree search algorithm
+     *
+     * Algorithm:
+     * 1. If root doesn't exist (s = NIL), return null
+     * 2. Start from root page
+     * 3. Search for key within page using linear search
+     * 4. If found, return the Record
+     * 5. If not found, navigate to appropriate child page
+     * 6. Repeat until key is found or we reach a leaf with no matching child
+     */
     public Record getRecord(int key) throws IOException {
-        // 1. Look for key in BTREE
-        // 2. If found: get record_address from keyPair
-        // 3. Read record from RECORDS_FILE using address
-
-        BTreePage rootPage = getRootPage();
-        int recordAddress = searchInPage(rootPage, key);
-
-        if (recordAddress >= 0) {
-            return disk.readRecord(Main.File.RECORDS, recordAddress);
+        // Step 1: If root doesn't exist, return null
+        if (rootPageNumber == -1) {
+            return null;
         }
+
+        // Step 2: Start from root and traverse tree
+        int currentPageNumber = rootPageNumber;
+
+        while (currentPageNumber != -1) {
+            // Fetch current page
+            BTreePage currentPage = readBTreePage(currentPageNumber);
+
+            // Search for key within this page
+            SearchResult result = searchInPage(currentPage, key);
+
+            // If key found, read and return the record
+            if (result.recordAddress >= 0) {
+                return disk.readRecord(Main.File.RECORDS, result.recordAddress);
+            }
+
+            // If not found, navigate to child page (or -1 if leaf node reached)
+            currentPageNumber = result.childPagePointer;
+
+            // Validation: if we're following a child pointer that is -1 from a non-leaf, error
+            if (currentPageNumber == -1 && !currentPage.isLeaf()) {
+                throw new RuntimeException("Corrupted BTree: invalid child pointer (-1) in non-leaf node");
+            }
+        }
+
+        // Key not found in tree
         return null;
     }
 
     /**
-     * Search for a key within a single page (linear search for now)
-     * Returns record address if found, -1 otherwise
+     * Search for a key within a single page
+     *
+     * Returns SearchResult containing:
+     * - recordAddress: the address if found, -1 if not found
+     * - childPagePointer: which child to follow if not found
+     *
+     * Navigation logic:
+     * - If key < first key (X0): use childrenPages[0]
+     * - If key > last key (X_m where m = keyCount-1): use childrenPages[keyCount]
+     * - If key between X_i and X_i+1: use childrenPages[i+1]
      */
-    private int searchInPage(BTreePage page, int key) {
+    private SearchResult searchInPage(BTreePage page, int key) {
+        // Linear search through keys
         for (int i = 0; i < page.getKeyCount(); i++) {
             if (page.keyPairs[i].key == key) {
-                return page.keyPairs[i].record_address;
+                // Key found! Return address and dummy child pointer
+                return new SearchResult(page.keyPairs[i].record_address, -1);
+            }
+
+            // If key is less than current key, go to child i
+            if (key < page.keyPairs[i].key) {
+                return new SearchResult(-1, page.childrenPages[i]);
             }
         }
-        return -1;
+
+        // Key is greater than all keys in this page
+        // Go to the last child (after the last key)
+        return new SearchResult(-1, page.childrenPages[page.getKeyCount()]);
     }
+
 
     public void removeRecord(int key) throws IOException {
         // Very complicated - not implemented yet
