@@ -62,6 +62,11 @@ public class DiskDrive {
         return ds;
     }
 
+    public void restoreStats(DiskStats ds) {
+        pageReadCount = ds.pageReadCount;
+        pageWriteCount = ds.pageWriteCount;
+    }
+
     static public String getFileFromFileType(Main.File fileType) {
         return switch (fileType) {
             case BTREE ->  BTREE_FILE;

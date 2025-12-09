@@ -20,11 +20,11 @@ public class Main {
         int key = 100;
         System.out.println(bt.getDiskStats());
 
-        bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
-        bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
-        bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
-        bt.insertRecord(key++, new Record(2, 2.0 + key, 3.0  + key, 4.0  + key));
-        Record r = bt.getRecord(11220);
+        for (int i = 0; i < 5; i++) {
+            bt.insertRecord(key + i, new Record(i, 2.0 + i, 3.0  + i, 4.0  + i));
+        }
+        bt.displayTreeStructure();
+        Record r = bt.getRecord(100);
 
         System.out.println(bt.getDiskStats());
         System.out.println("Record " + r);

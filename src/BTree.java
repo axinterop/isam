@@ -5,7 +5,7 @@ import java.util.Arrays;
 public class BTree {
     public final int order;
     private DiskDrive disk;
-    private long lastRecordAddress = 0;
+    private int lastRecordAddress = 0;
     private int nextPageNumber = 0;
     private int rootPageNumber = -1;
 
@@ -35,6 +35,21 @@ public class BTree {
         SearchResult(int recordAddress, int childPagePointer) {
             this.recordAddress = recordAddress;
             this.childPagePointer = childPagePointer;
+        }
+    }
+
+    /**
+     * Result of traversing tree to find leaf
+     */
+    private class TraversalResult {
+        BTreePage leafPage;
+        int parentPageNumber;
+        int positionInParent;  // index in parent's childrenPages[]
+
+        TraversalResult(BTreePage leafPage, int parentPageNumber, int positionInParent) {
+            this.leafPage = leafPage;
+            this.parentPageNumber = parentPageNumber;
+            this.positionInParent = positionInParent;
         }
     }
 
@@ -147,16 +162,52 @@ public class BTree {
         }
 
         /**
-         * Find position where key should be inserted (in sorted order)
-         * Returns the index where key should go
+         * Binary search to find insertion position or detect existing key
+         * Returns: index where key should go (or where it was found)
+         * Throws: RuntimeException if key already exists
          */
         public int findInsertPosition(int key) {
-            int pos = 0;
-            while (pos < keyCount && keyPairs[pos].key < key) {
-                pos++;
+            int left = 0;
+            int right = keyCount - 1;
+
+            while (left <= right) {
+                int mid = left + (right - left) / 2;
+                if (keyPairs[mid].key == key) {
+                    throw new RuntimeException("Key already exists: " + key);
+                } else if (keyPairs[mid].key < key) {
+                    left = mid + 1;
+                } else {
+                    right = mid - 1;
+                }
             }
-            return pos;
+
+            return left;  // Position where key should be inserted
         }
+
+        /**
+         * Binary search to find child pointer for key navigation
+         * Returns: index in childrenPages[] to follow
+         * If key exists, throws exception
+         */
+        public int findChildPointer(int key) {
+            int left = 0;
+            int right = keyCount - 1;
+
+            while (left <= right) {
+                int mid = left + (right - left) / 2;
+                if (keyPairs[mid].key == key) {
+                    throw new RuntimeException("Key already exists: " + key);
+                } else if (keyPairs[mid].key < key) {
+                    left = mid + 1;
+                } else {
+                    right = mid - 1;
+                }
+            }
+
+            // left is now the index of first key >= key
+            return left;  // childrenPages[left] is the child to follow
+        }
+
 
         /**
          * Insert a key-address pair into this page in sorted order
@@ -184,7 +235,7 @@ public class BTree {
          * For order=2: max 4 keys, median is at index 1 (or 2)
          */
         public int getMedianIndex() {
-            return order - 1;
+            return (2 * order) / 2;
         }
 
         @Override
@@ -211,35 +262,251 @@ public class BTree {
 
     /**
      * Insert a record with given key
-     * Steps:
-     * 1. Assign record address (increment lastRecordAddress)
-     * 2. Write record to RECORDS_FILE
-     * 3. Create/get root page
-     * 4. Insert key-pair into root (for now, no splitting)
-     * 5. Write root page to BTREE_FILE
+     * Public API - handles record assignment and tree insertion
      */
     public void insertRecord(int key, Record record) throws IOException {
-        // Step 1: Assign record address
-        int recordAddress = (int) lastRecordAddress;
-        record.id = recordAddress;  // Set record ID to its address
-        lastRecordAddress++;
+        int saved_id = record.id;
+        int recordAddress = lastRecordAddress;
+        record.id = recordAddress;
 
-        // Step 2: Write record to RECORDS_FILE
-        disk.writeRecord(Main.File.RECORDS, record);
+        int result = findLeafAndInsert(key, recordAddress);
 
-        // Step 3: Get or create root page
-        BTreePage rootPage = getRootPage();
-
-        // Step 4: Insert into root (basic: no splitting for now)
-        if (!rootPage.isFull()) {
-            rootPage.insertKeyPair(key, recordAddress);
-        } else {
-            throw new IllegalStateException("Root page is full - splitting not yet implemented");
+        if (result == -2) {
+            throw new RuntimeException("Key already exists: " + key);
         }
 
-        // Step 5: Write root page back to disk
-        writeBTreePage(rootPage);
+        if (result == -1) {
+            System.out.println("SPLITTING (not implemented)");
+        }
 
+        // SPLIT
+
+        if (result >= 0) {
+            System.out.println("Insert successful");
+            lastRecordAddress++;
+            disk.writeRecord(Main.File.RECORDS, record);
+        } else {
+            record.id = saved_id;
+        }
+
+    }
+
+    /**
+     * Find the correct leaf page and attempt insertion with compensation
+     * Returns: -2 if duplicate, -1 if splitting needed, >= 0 if success
+     */
+    private int findLeafAndInsert(int key, int recordAddress) throws IOException {
+        // Step 1: Root doesn't exist yet - create it and insert
+        if (rootPageNumber == -1) {
+            BTreePage root = getRootPage();
+            try {
+                root.insertKeyPair(key, recordAddress);
+                writeBTreePage(root);
+                return 0;  // Success
+            } catch (RuntimeException e) {
+                if (e.getMessage().contains("already exists")) {
+                    return -2;  // Duplicate
+                }
+                throw e;
+            }
+        }
+
+        // Step 2: Traverse tree to find correct leaf
+        TraversalResult traversal = findLeaf(key);
+        if (traversal == null) {
+            return -2;  // Duplicate detected during traversal
+        }
+
+        // Step 3: Try to insert into leaf
+        BTreePage leafPage = traversal.leafPage;
+
+        if (!leafPage.isFull()) {
+            // Space available - insert directly
+            try {
+                leafPage.insertKeyPair(key, recordAddress);
+                writeBTreePage(leafPage);
+                return 0;  // Success
+            } catch (RuntimeException e) {
+                if (e.getMessage().contains("already exists")) {
+                    return -2;  // Duplicate
+                }
+                throw e;
+            }
+        }
+
+        // Step 4: Leaf is full - try compensation
+        int compensationResult = tryCompensation(key, recordAddress, leafPage,
+            traversal.parentPageNumber,
+            traversal.positionInParent);
+
+        if (compensationResult >= 0) {
+            return compensationResult;  // Success
+        }
+
+        // Step 5: Compensation failed - needs splitting (future phase)
+        return -1;
+    }
+
+    /**
+     * Traverse tree from root to find leaf page where key should go
+     * Returns TraversalResult with leaf page and parent info
+     * Returns null if key already exists
+     */
+    private TraversalResult findLeaf(int key) throws IOException {
+        int currentPageNumber = rootPageNumber;
+        int parentPageNumber = -1;
+        int positionInParent = -1;
+
+        while (true) {
+            BTreePage currentPage = readBTreePage(currentPageNumber);
+            SearchResult result = searchInPage(currentPage, key);
+            if (result.recordAddress != -1) {
+                return null; // // Duplicate found
+            }
+
+            if (currentPage.isLeaf()) {
+                // Found the leaf
+                return new TraversalResult(currentPage, parentPageNumber, positionInParent);
+            }
+
+            // Internal node - find which child to follow
+            try {
+                int childIndex = currentPage.findChildPointer(key);
+                parentPageNumber = currentPageNumber;
+                positionInParent = childIndex;
+                currentPageNumber = currentPage.childrenPages[childIndex];
+            } catch (RuntimeException e) {
+                if (e.getMessage().contains("already exists")) {
+                    return null;  // Duplicate found
+                }
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Try to compensate (rebalance) with a sibling
+     * Returns: parent page number if success, -1 if both siblings full or no siblings exist
+     */
+    private int tryCompensation(int key, int recordAddress, BTreePage overflowPage,
+                                int parentPageNumber, int positionInOverflow) throws IOException {
+
+        // Cannot compensate if overflow page is root (no parent)
+        if (parentPageNumber == -1) {
+            return -1;  // Needs splitting
+        }
+
+        BTreePage parentPage = readBTreePage(parentPageNumber);
+
+        // Try left sibling first
+        if (positionInOverflow > 0) {
+            int leftSiblingPageNum = parentPage.childrenPages[positionInOverflow - 1];
+            BTreePage leftSibling = readBTreePage(leftSiblingPageNum);
+
+            if (!leftSibling.isFull()) {
+                // Compensation possible with left sibling
+                return performCompensation(key, recordAddress, overflowPage, leftSibling,
+                    parentPage, positionInOverflow - 1, true);
+            }
+        }
+
+        // Try right sibling
+        if (positionInOverflow < parentPage.getKeyCount()) {
+            int rightSiblingPageNum = parentPage.childrenPages[positionInOverflow + 1];
+            BTreePage rightSibling = readBTreePage(rightSiblingPageNum);
+
+            if (!rightSibling.isFull()) {
+                // Compensation possible with right sibling
+                return performCompensation(key, recordAddress, overflowPage, rightSibling,
+                    parentPage, positionInOverflow, false);
+            }
+        }
+
+        // Both siblings full or no siblings exist
+        return -1;  // Needs splitting
+    }
+
+    /**
+     * Perform compensation (rebalancing) between overflow page and sibling
+     * isLeftSibling: true if compensating with left sibling, false for right
+     * Returns: parent page number
+     */
+    private int performCompensation(int key, int recordAddress, BTreePage overflowPage,
+                                    BTreePage siblingPage, BTreePage parentPage,
+                                    int siblingIndex, boolean isLeftSibling) throws IOException {
+
+        // Determine which is overflow and which is destination
+        BTreePage destPage = isLeftSibling ? siblingPage : overflowPage;
+        BTreePage srcPage = isLeftSibling ? overflowPage : siblingPage;
+        int separatorKeyIndex = isLeftSibling ? siblingIndex : siblingIndex;
+
+        // Gather all keys: srcPage + destPage + separator from parent
+        int totalKeys = srcPage.getKeyCount() + destPage.getKeyCount() + 1;
+        KeyPair[] allKeys = new KeyPair[totalKeys];
+
+        int idx = 0;
+
+        // Add keys from src page
+        for (int i = 0; i < srcPage.getKeyCount(); i++) {
+            allKeys[idx++] = new KeyPair(srcPage.keyPairs[i].key, srcPage.keyPairs[i].record_address);
+        }
+
+        // Add separator key from parent
+        allKeys[idx++] = new KeyPair(parentPage.keyPairs[separatorKeyIndex].key,
+            parentPage.keyPairs[separatorKeyIndex].record_address);
+
+        // Add keys from dest page
+        for (int i = 0; i < destPage.getKeyCount(); i++) {
+            allKeys[idx++] = new KeyPair(destPage.keyPairs[i].key, destPage.keyPairs[i].record_address);
+        }
+
+        // Find median index (lower median)
+        int medianIndex = totalKeys / 2;
+        KeyPair medianKey = allKeys[medianIndex];
+
+        // Clear both pages
+        for (int i = 0; i < srcPage.keyPairs.length; i++) {
+            srcPage.keyPairs[i] = new KeyPair();
+        }
+        for (int i = 0; i < destPage.keyPairs.length; i++) {
+            destPage.keyPairs[i] = new KeyPair();
+        }
+
+        // Distribute keys: first half to srcPage, second half to destPage
+        srcPage.keyCount = 0;
+        for (int i = 0; i < medianIndex; i++) {
+            srcPage.keyPairs[i] = new KeyPair(allKeys[i].key, allKeys[i].record_address);
+            srcPage.keyCount++;
+        }
+
+        destPage.keyCount = 0;
+        for (int i = medianIndex + 1; i < totalKeys; i++) {
+            destPage.keyPairs[i - medianIndex - 1] = new KeyPair(allKeys[i].key, allKeys[i].record_address);
+            destPage.keyCount++;
+        }
+
+        // Replace separator key in parent
+        parentPage.keyPairs[separatorKeyIndex] = new KeyPair(medianKey.key, medianKey.record_address);
+
+        // Now try to insert the new key into destPage (which now has space)
+        try {
+            destPage.insertKeyPair(key, recordAddress);
+        } catch (RuntimeException e) {
+            if (e.getMessage().contains("already exists")) {
+                throw new RuntimeException("Key already exists: " + key);
+            }
+            throw e;
+        }
+
+        // Write all three pages to disk (one by one with flush)
+        writeBTreePage(srcPage);
+        disk.flush();
+        writeBTreePage(destPage);
+        disk.flush();
+        writeBTreePage(parentPage);
+        disk.flush();
+
+        return parentPage.address;  // Success
     }
 
     /**
@@ -292,78 +559,45 @@ public class BTree {
 
     /**
      * Get a record by key using BTree search algorithm
-     *
-     * Algorithm:
-     * 1. If root doesn't exist (s = NIL), return null
-     * 2. Start from root page
-     * 3. Search for key within page using linear search
-     * 4. If found, return the Record
-     * 5. If not found, navigate to appropriate child page
-     * 6. Repeat until key is found or we reach a leaf with no matching child
      */
     public Record getRecord(int key) throws IOException {
-        // Step 1: If root doesn't exist, return null
         if (rootPageNumber == -1) {
             return null;
         }
 
-        // Step 2: Start from root and traverse tree
-        int currentPageNumber = rootPageNumber;
-
-        while (currentPageNumber != -1) {
-            // Fetch current page
-            BTreePage currentPage = readBTreePage(currentPageNumber);
-
-            // Search for key within this page
-            SearchResult result = searchInPage(currentPage, key);
-
-            // If key found, read and return the record
+        TraversalResult t_result = findLeaf(key);
+        if (t_result != null) {
+            SearchResult result = searchInPage(t_result.leafPage, key);
             if (result.recordAddress >= 0) {
                 return disk.readRecord(Main.File.RECORDS, result.recordAddress);
             }
-
-            // If not found, navigate to child page (or -1 if leaf node reached)
-            currentPageNumber = result.childPagePointer;
-
-            // Validation: if we're following a child pointer that is -1 from a non-leaf, error
-            if (currentPageNumber == -1 && !currentPage.isLeaf()) {
-                throw new RuntimeException("Corrupted BTree: invalid child pointer (-1) in non-leaf node");
-            }
         }
 
-        // Key not found in tree
         return null;
     }
 
     /**
-     * Search for a key within a single page
-     *
-     * Returns SearchResult containing:
-     * - recordAddress: the address if found, -1 if not found
-     * - childPagePointer: which child to follow if not found
-     *
-     * Navigation logic:
-     * - If key < first key (X0): use childrenPages[0]
-     * - If key > last key (X_m where m = keyCount-1): use childrenPages[keyCount]
-     * - If key between X_i and X_i+1: use childrenPages[i+1]
+     * Search for a key within a single page (used by getRecord)
+     * Uses binary search
      */
     private SearchResult searchInPage(BTreePage page, int key) {
-        // Linear search through keys
-        for (int i = 0; i < page.getKeyCount(); i++) {
-            if (page.keyPairs[i].key == key) {
-                // Key found! Return address and dummy child pointer
-                return new SearchResult(page.keyPairs[i].record_address, -1);
-            }
+        int left = 0;
+        int right = page.getKeyCount() - 1;
 
-            // If key is less than current key, go to child i
-            if (key < page.keyPairs[i].key) {
-                return new SearchResult(-1, page.childrenPages[i]);
+        while (left <= right) {
+            int mid = left + (right - left) / 2;
+            if (page.keyPairs[mid].key == key) {
+                // Found!
+                return new SearchResult(page.keyPairs[mid].record_address, -1);
+            } else if (page.keyPairs[mid].key < key) {
+                left = mid + 1;
+            } else {
+                right = mid - 1;
             }
         }
 
-        // Key is greater than all keys in this page
-        // Go to the last child (after the last key)
-        return new SearchResult(-1, page.childrenPages[page.getKeyCount()]);
+        // Not found - left is the child index to follow
+        return new SearchResult(-1, page.childrenPages[left]);
     }
 
 
@@ -378,6 +612,135 @@ public class BTree {
 
     public BTreePage getRootPageDirect() throws IOException {
         return getRootPage();
+    }
+
+    /**
+     * Read a BTree page directly from disk for display purposes
+     * WITHOUT incrementing disk read/write counters
+     * Returns null if page doesn't exist
+     */
+    private BTreePage readBTreePageForDisplay(int pageNumber) throws IOException {
+        // bypasses caching
+        RandomAccessFile raf = new RandomAccessFile(DiskDrive.getFileFromFileType(Main.File.BTREE), "r");
+
+        try {
+            long filePosition = (long) pageNumber * 56;  // 56 bytes per page for order=2
+
+            // Check if page is beyond file size
+            if (filePosition + 56 > raf.length()) {
+                return null;  // Page doesn't exist yet
+            }
+
+            raf.seek(filePosition);
+            byte[] pageData = new byte[56];
+            int bytesRead = raf.read(pageData);
+
+            if (bytesRead != 56) {
+                return null;  // Failed to read complete page
+            }
+
+            // Deserialize
+            BTreePage page = new BTreePage(order, -1);
+            page.address = pageNumber;
+            page.deserialize(pageData);
+            return page;
+        } finally {
+            raf.close();
+        }
+    }
+
+    /**
+     * Display the complete BTree structure in human-readable format
+     * Does NOT increment disk read/write counters
+     */
+    public void displayTreeStructure() throws IOException {
+        DiskDrive.DiskStats STATS_BEFORE_DISPLAY = getDiskStats();
+        disk.flush();
+
+        if (rootPageNumber == -1) {
+            System.out.println("BTree is empty (no root page)");
+            return;
+        }
+
+        System.out.println("=== BTree Structure (Order=" + order + ", Max " + (2 * order) + " keys per page) ===\n");
+
+        // Use BFS to organize pages by level
+        java.util.Queue<Integer> currentLevel = new java.util.LinkedList<>();
+        java.util.Queue<Integer> nextLevel = new java.util.LinkedList<>();
+        currentLevel.add(rootPageNumber);
+
+        int level = 0;
+        int totalPages = 0;
+
+        while (!currentLevel.isEmpty()) {
+            System.out.println("Level " + level + ":");
+
+            while (!currentLevel.isEmpty()) {
+                int pageNum = currentLevel.poll();
+                BTreePage page = readBTreePageForDisplay(pageNum);
+
+                if (page == null) {
+                    continue;
+                }
+
+                totalPages++;
+
+                // Format: Page X [keys: ...] [children: ...] [leaf: true/false] [parent: Y]
+                StringBuilder sb = new StringBuilder();
+                sb.append("  Page ").append(page.address);
+
+                // Keys
+                sb.append(" [keys: ");
+                for (int i = 0; i < page.getKeyCount(); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(page.keyPairs[i].key);
+                }
+                sb.append("]");
+
+                // Children pointers
+                sb.append(" [children: ");
+                if (page.isLeaf()) {
+                    sb.append("none");
+                } else {
+                    for (int i = 0; i <= page.getKeyCount(); i++) {
+                        if (i > 0) sb.append(", ");
+                        sb.append(page.childrenPages[i]);
+                    }
+                }
+                sb.append("]");
+
+                // Leaf flag
+                sb.append(" [leaf: ").append(page.isLeaf()).append("]");
+
+                // Parent address
+                sb.append(" [parent: ").append(page.parentAddress).append("]");
+
+                System.out.println(sb.toString());
+
+                // Add children to next level (if not a leaf)
+                if (!page.isLeaf()) {
+                    for (int i = 0; i <= page.getKeyCount(); i++) {
+                        if (page.childrenPages[i] != -1) {
+                            nextLevel.add(page.childrenPages[i]);
+                        }
+                    }
+                }
+            }
+
+            // Move to next level
+            currentLevel = nextLevel;
+            nextLevel = new java.util.LinkedList<>();
+
+            if (!currentLevel.isEmpty()) {
+                System.out.println();
+            }
+
+            level++;
+        }
+
+        System.out.println("\nTotal Pages: " + totalPages);
+
+        disk.restoreStats(STATS_BEFORE_DISPLAY);
     }
 }
 
