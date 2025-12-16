@@ -2,8 +2,11 @@ import java.io.File;
 import java.io.IOException;
 
 public class ISAM {
+    String indexFile =  null;
+    String recordsFile = null;
+    String overflowFile = null;
+
     public double alfa = 0.5;
-    public double beta = 0.2;
     public int pageSize = 0;
 
     Index index;
@@ -11,7 +14,10 @@ public class ISAM {
 
 
     public ISAM(String indexFile, String recordsFile, String overflowFile, int pageSize) throws IOException {
-        cleanup(indexFile, recordsFile, overflowFile);
+        this.indexFile = indexFile;
+        this.recordsFile = recordsFile;
+        this.overflowFile = overflowFile;
+        cleanup();
         this.pageSize = pageSize;
         index = new Index(indexFile, pageSize);
         records = new TRecords(recordsFile, overflowFile, pageSize);
@@ -72,13 +78,16 @@ public class ISAM {
         records.overflow.writeCachedPage();
     }
 
-    public void cleanup(String idx, String rec, String ovr) throws IOException {
-        File f = new File(idx);
+    public void cleanup() throws IOException {
+        File f = new File(this.indexFile);
         f.delete();
-        f = new File(rec);
+        f = new File(this.recordsFile);
         f.delete();
-        f = new File(ovr);
+        f = new File(this.overflowFile);
         f.delete();
+
+        index = new Index(indexFile, pageSize);
+        records = new TRecords(recordsFile, overflowFile, pageSize);
     }
 
     public void print() throws IOException {

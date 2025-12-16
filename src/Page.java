@@ -83,8 +83,8 @@ public abstract class Page<T extends Record> implements IDataSerializable {
     public void print(boolean cached) {
         for (int i = 0; i < pageSize; i++) {
             T r = data[i];
-            System.out.print(">> [" + pageNum + ":");
-            System.out.print(i + "] ");
+            System.out.print("[" + pageNum + ":");
+            System.out.print(i + "] >> ");
             System.out.println(r);
         }
     }

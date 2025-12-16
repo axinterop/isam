@@ -29,6 +29,9 @@ public class IndexRecord extends Record {
 
     @Override
     public String toString() {
+        if (pageNum == -1 || key == -1) {
+            return "IndexRecord: [-]";
+        }
         return String.format("IndexRecord: [P=%d:K=%d]", pageNum, key);
     }
 

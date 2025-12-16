@@ -29,7 +29,9 @@ public class TRecord extends Record {
         a = -1;
         b = -1;
         h = -1;
-    };
+    }
+
+    ;
 
     public TRecord(int key, double a, double b, double h) {
         deleted = false;
@@ -73,10 +75,18 @@ public class TRecord extends Record {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         if (deleted) {
-            sb.append("[D]");
+            sb.append("[X] ");
         }
         sb.append("[").append(key).append("|");
-        sb.append(next.pageNum).append(":").append(next.pagePos).append("]");
+        if (next.exists()) {
+            sb.append(next.pageNum);
+            sb.append(":");
+            sb.append(next.pagePos);
+        } else {
+            sb.append("-");
+        }
+        sb.append("]");
+        sb.append("\t\t\ta=" + a + " b=" + b + " h=" + h);
         return sb.toString();
     }
 
