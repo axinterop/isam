@@ -4,7 +4,6 @@ public abstract class Page<T extends Record> implements IDataSerializable {
     public int pageSize;
 
     // Metadata
-    public boolean overflow;
     public int pageNum;
     public int recordAmount;
     // end of Metadata ---
@@ -16,7 +15,6 @@ public abstract class Page<T extends Record> implements IDataSerializable {
 
 
     public Page(int pageSize) {
-        this.overflow = false;
         this.pageSize = pageSize;
         this.pageNum = 0;
         this.recordAmount = 0;
@@ -25,7 +23,6 @@ public abstract class Page<T extends Record> implements IDataSerializable {
 
     @Override
     public void serializeData(DataOutputStream dos) throws IOException {
-        dos.writeBoolean(this.overflow);
         dos.writeInt(pageNum);
         dos.writeInt(recordAmount);
         serializeBody(dos);
@@ -33,19 +30,27 @@ public abstract class Page<T extends Record> implements IDataSerializable {
 
     @Override
     public void deserializeData(DataInputStream dis) throws IOException {
-        overflow = dis.readBoolean();
         pageNum = dis.readInt();
+        if (pageNum == -1) pageNum = 0;
         recordAmount = dis.readInt();
+        if (recordAmount == -1) recordAmount = 0;
         deserializeBody(dis);
     }
 
     protected abstract void serializeBody(DataOutputStream dos) throws IOException;
     protected abstract void deserializeBody(DataInputStream dis) throws IOException;
 
-    protected abstract int insertRecord(T record);
+    protected abstract int insert(T record);
     protected abstract void deleteRecord(int key);
     protected abstract void updateRecord(int key);
-    protected abstract void getRecord(int key);
+    protected abstract T getRecord(int key);
+
+    protected T getRecordFromPos(int pos) {
+        if  (pos < 0 || pos >= data.length) {
+            return null;
+        }
+        return data[pos];
+    }
 
     public int getSizeBytes() {
         int size = 0;
@@ -62,10 +67,35 @@ public abstract class Page<T extends Record> implements IDataSerializable {
     }
 
     public boolean isFull() {
-        return recordAmount == data.length;
+        if (recordAmount > pageSize) {
+            throw new IllegalStateException("Amount of records is bigger than page size");
+        }
+        return recordAmount == pageSize;
     }
 
-    public boolean isOverflow() {
-        return overflow;
+    public int getLastFreeSlot() {
+        if (isFull()) {
+            throw new IllegalStateException("Cannot get last free slot (page is full)");
+        }
+        return recordAmount;
     }
+
+    public void print(boolean cached) {
+        for (int i = 0; i < pageSize; i++) {
+            T r = data[i];
+            System.out.print(">> [" + pageNum + ":");
+            System.out.print(i + "] ");
+            System.out.println(r);
+        }
+    }
+
+    public void print() {
+        for (int i = 0; i < pageSize; i++) {
+            T r = data[i];
+            System.out.print("[" + pageNum + ":");
+            System.out.print(i + "] ");
+            System.out.println(r);
+        }
+    }
+
 }

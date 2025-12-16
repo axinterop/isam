@@ -1,6 +1,19 @@
 import java.io.*;
 
 public class TRecord extends Record {
+    public static class NextRecordPos {
+        int pagePos;
+        int pageNum;
+
+        public NextRecordPos() {
+            pagePos = -1;
+            pageNum = -1;
+        }
+
+        public boolean exists() {
+            return pagePos != -1 && pageNum != -1;
+        }
+    }
 
     // Metadata
     boolean deleted;
@@ -8,12 +21,18 @@ public class TRecord extends Record {
     // Data
     int key;
     double a, b, h;
-    int nextRecordPageNum;
-    int nextRecordPagePos;
+    NextRecordPos next = new NextRecordPos();
 
-    public TRecord() {};
+    public TRecord() {
+        deleted = false;
+        key = -1;
+        a = -1;
+        b = -1;
+        h = -1;
+    };
 
     public TRecord(int key, double a, double b, double h) {
+        deleted = false;
         this.key = key;
         this.a = a;
         this.b = b;
@@ -27,8 +46,8 @@ public class TRecord extends Record {
         dos.writeDouble(a);
         dos.writeDouble(b);
         dos.writeDouble(h);
-        dos.writeInt(nextRecordPageNum);
-        dos.writeInt(nextRecordPagePos);
+        dos.writeInt(next.pageNum);
+        dos.writeInt(next.pagePos);
     }
 
     @Override
@@ -38,27 +57,28 @@ public class TRecord extends Record {
         a = dis.readDouble();
         b = dis.readDouble();
         h = dis.readDouble();
-        nextRecordPageNum = dis.readInt();
-        nextRecordPagePos = dis.readInt();
+        next.pageNum = dis.readInt();
+        next.pagePos = dis.readInt();
 
-    }
-
-    @Override
-    public String toString() {
-        return String.format(
-            "[D=%b] TRecord (%d): a=%.3f b=%.3f h=%.3f",
-            deleted,
-            key,
-            a,
-            b,
-            h
-        );
     }
 
     @Override
     public int getSizeBytes() {
-        return 1 + // Boolean
+        return 1 + // deleted
             Integer.BYTES * 3 // key, nextRecordPageNum, nextRecordPagePos
             + Double.BYTES * 3; // a, b, h
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        if (deleted) {
+            sb.append("[D]");
+        }
+        sb.append("[").append(key).append("|");
+        sb.append(next.pageNum).append(":").append(next.pagePos).append("]");
+        return sb.toString();
+    }
+
+
 }

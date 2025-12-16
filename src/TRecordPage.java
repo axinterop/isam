@@ -1,6 +1,8 @@
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Comparator;
 
 public class TRecordPage extends Page<TRecord> {
 
@@ -36,16 +38,21 @@ public class TRecordPage extends Page<TRecord> {
         }
     }
 
+
     @Override
-    protected int insertRecord(TRecord record)  {
-        if (recordAmount < pageSize) {
-            data[recordAmount] = record;
-            recordAmount++;
-            return 0;
-        } else {
-            overflow = true;
-            return -1;
+    protected int insert(TRecord record)  {
+        if (isFull()) {
+            throw new IllegalStateException("Trying to insert TRecord to full page");
         }
+        data[recordAmount] = record;
+        recordAmount++;
+        return 0;
+    }
+
+    protected int insertAndSort(TRecord record)  {
+        insert(record);
+        sortPageByKey();
+        return 0;
     }
 
     @Override
@@ -59,8 +66,16 @@ public class TRecordPage extends Page<TRecord> {
     }
 
     @Override
-    protected void getRecord(int key)  {
-
+    protected TRecord getRecord(int key)  {
+        if (isEmpty()) {
+            throw new IllegalStateException("Trying to get TRecord from empty page");
+        }
+        for (int i = 0; i < pageSize; i++) {
+            if (data[i].key == key) {
+                return data[i];
+            }
+        }
+        return null;
     }
 
     @Override
@@ -69,4 +84,29 @@ public class TRecordPage extends Page<TRecord> {
 
     }
 
+    public boolean isOverflown() {
+        for (int i = 0; i < recordAmount; i++) {
+            if (data[i].next.exists()) return true;
+        }
+        return false;
+    }
+
+    public TRecord findPrevious(int key) {
+        int lastPos = -1;
+        for (int i = 0; i < recordAmount; i++) {
+            if (data[i].key < key) {
+                lastPos = i;
+            }
+        }
+        return lastPos  == -1 ? null : data[lastPos];
+    }
+
+    public void sortPageByKey() {
+        Arrays.sort(
+            data,
+            0,
+            recordAmount,
+            Comparator.comparingInt(r -> r.key)
+        );
+    }
 }

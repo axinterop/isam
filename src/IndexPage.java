@@ -35,8 +35,10 @@ public class IndexPage extends Page<IndexRecord> {
     }
 
     @Override
-    protected int insertRecord(IndexRecord record) {
-
+    protected int insert(IndexRecord record) {
+        data[recordAmount] = record;
+        recordAmount++;
+        return 0;
     }
 
     @Override
@@ -50,8 +52,8 @@ public class IndexPage extends Page<IndexRecord> {
     }
 
     @Override
-    protected void getRecord(int key) {
-
+    protected IndexRecord getRecord(int key) {
+        return null;
     }
 
     @Override

@@ -3,6 +3,8 @@ import java.io.IOException;
 
 public class Index extends PagedFile<IndexPage> {
 
+    int smallestKey = -1;
+
     public Index(String filename, int pageSize) throws FileNotFoundException {
         super(filename, pageSize);
     }
@@ -12,38 +14,56 @@ public class Index extends PagedFile<IndexPage> {
         return new IndexPage(pageSize);
     }
 
-    public int getPageFor(int key) throws IOException {
-        int currentPage = 0;
-        while (true) {
-            IndexPage p = readPage(currentPage);
+    public int insert(IndexRecord indexRecord) throws IOException {
+        IndexPage lastNonEmptyPage = getLastNonFullPage();
+        fileInsertedAmount++;
+        return lastNonEmptyPage.insert(indexRecord);
+    }
+
+    // Linear lookup in the index
+    public int lookUpPageFor(int key) throws IOException {
+        int lastPageNum = 0;
+        int prevKey = 0;
+        int currPage = 0;
+        while (currPage < pageAmount) {
+            IndexPage p = readPage(currPage);
             if (p == null) {
-                return -1;
+                return lastPageNum;
             }
+
             for (int i = 0; i < pageSize; i++) {
+                if (prevKey > p.data[i].key) {
+                    return lastPageNum;
+                }
+                if (p.data[i].key < key) {
+                    lastPageNum = p.data[i].pageNum;
+                }
+                if (p.data[i].key > key) {
+                    if (i == pageSize - 1) {
+                        currPage++;
+                        continue;
+                    }
+                    return lastPageNum;
+                }
                 if (p.data[i].key == key) {
                     return p.data[i].pageNum;
                 }
+                prevKey = p.data[i].key;
             }
+            currPage++;
         }
+        return lastPageNum;
     }
 
-    public int getInsertPageFor(int key) throws IOException {
-        int lastInsertPage = 0;
-        int currentInsertPage = 0;
-        while (true) {
-            IndexPage p = readPage(currentInsertPage);
-            if (p == null) {
-                return lastInsertPage;
-            }
-            if (p.data[0].key <= key) {
-                lastInsertPage = currentInsertPage;
-            }
-            if (p.data[0].key > key) {
-                return lastInsertPage;
-            }
-            currentInsertPage++;
-        }
+    public int getInsertPageFor(int key)  throws IOException {
+        int r = lookUpPageFor(key);
+        if (r == -1) return 0;
+        return r;
     }
 
-
+    public void updateSmallestKey(int key) throws IOException {
+        IndexPage ip = getPage(0);
+        ip.data[0].key = key;
+        smallestKey = key;
+    }
 }

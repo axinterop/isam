@@ -11,6 +11,8 @@ public class IndexRecord extends Record {
     }
 
     public IndexRecord() {
+        this.key = -1;
+        this.pageNum = -1;
     }
 
     @Override
@@ -27,7 +29,7 @@ public class IndexRecord extends Record {
 
     @Override
     public String toString() {
-        return String.format("Index: %d:%d", key, pageNum);
+        return String.format("IndexRecord: [P=%d:K=%d]", pageNum, key);
     }
 
     @Override

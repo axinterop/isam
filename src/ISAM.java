@@ -1,4 +1,4 @@
-import java.io.FileNotFoundException;
+import java.io.File;
 import java.io.IOException;
 
 public class ISAM {
@@ -8,41 +8,88 @@ public class ISAM {
 
     Index index;
     TRecords records;
-    Overflow overflow;
 
 
-    public ISAM(String indexFile, String recordsFile, String overflowFile, int pageSize) throws FileNotFoundException {
+    public ISAM(String indexFile, String recordsFile, String overflowFile, int pageSize) throws IOException {
+        cleanup(indexFile, recordsFile, overflowFile);
         this.pageSize = pageSize;
-        index =     new Index(indexFile, pageSize);
-        records =   new TRecords(recordsFile, pageSize);
-        overflow =  new Overflow(overflowFile, pageSize);
+        index = new Index(indexFile, pageSize);
+        records = new TRecords(recordsFile, overflowFile, pageSize);
     }
 
     public TRecord getRecord(int key) throws IOException {
-        int pageNum = index.getPageFor(key);
+        int pageNum = index.lookUpPageFor(key);
         if (pageNum == -1) {
             return null;
         }
-        // Next action
-        return new TRecord(0, 1, 2, 3);
+        return records.getRecord(key, pageNum);
     }
 
-    public int insertRecord(TRecord record) throws IOException {
+    public int insert(TRecord record) throws IOException {
+        if (record.key < 0) {
+            throw new IllegalArgumentException("Invalid key (negative)");
+        }
+
+        if (index.pageAmount == 0) {
+            records.insert(record, 0);
+            IndexRecord ir = new IndexRecord(record.key, 0);
+            index.insert(ir);
+            index.smallestKey = ir.key;
+            return 0;
+        }
+
+        if (record.key < index.smallestKey) {
+            records.insert(record, 0);
+            index.updateSmallestKey(record.key);
+            return 0;
+        }
+
         TRecord r = getRecord(record.key);
         if (r != null) {
-            return -1;
+            throw new IllegalStateException("Duplicate key");
         }
         int pageNum = index.getInsertPageFor(record.key);
-        int result = records.insertRecord(record, pageNum);
+        int result = records.insert(record, pageNum);
+        if (result == 3) {
+            // the key was smaller than the smallest one in records (needs index update)
+            index.updateSmallestKey(record.key);
+        }
+        if (result == 4) {
+            IndexRecord ir = new IndexRecord(record.key, records.pageAmount - 1);
+            index.insert(ir);
+        }
         return 0;
     }
-//
-//    public void deleteRecord(Record record) {
-//
-//    }
+
+    public int recordAmount() {
+        return index.fileInsertedAmount + records.fileInsertedAmount + records.overflow.fileInsertedAmount;
+    }
 
     // TODO: REMOVE (DEBUG)
     public void flush() throws IOException {
         index.writeCachedPage();
+        records.writeCachedPage();
+        records.overflow.writeCachedPage();
+    }
+
+    public void cleanup(String idx, String rec, String ovr) throws IOException {
+        File f = new File(idx);
+        f.delete();
+        f = new File(rec);
+        f.delete();
+        f = new File(ovr);
+        f.delete();
+    }
+
+    public void print() throws IOException {
+        System.out.println();
+        index.print();
+        records.print();
+        System.out.println("\n[S] Total records: " + recordAmount());
+
+    }
+
+    public void printInSequence() {
+
     }
 }
