@@ -8,6 +8,8 @@ public class ISAMShell {
 
     private final Random random = new Random(12345);
 
+    private int randomThresholdBreak = 100;
+
     public ISAMShell(ISAM isam) {
         this.isam = isam;
     }
@@ -15,10 +17,11 @@ public class ISAMShell {
     private void printCommands() {
         System.out.println("Commands:");
         System.out.println("  [i]nsert <key> <a> <b> <h>");
-        System.out.println("  [r]andom <amount>");
+        System.out.println("  [r]andom <amount> <maxRandom>");
         System.out.println("  [g]et <key>");
         System.out.println("  [p]rint");
-        System.out.println("  [c]ount");
+        System.out.println("  [ps|print sequence]");
+        System.out.println("  [s]tats");
         System.out.println("  cleanup");
         System.out.println("  [f]lush");
         System.out.println("  [h]elp - show commands");
@@ -63,37 +66,52 @@ public class ISAMShell {
                             }
                             TRecord rec = new TRecord(key, a, b, h);
                             int res = isam.insert(rec);
+                            isam.print(); // TODO: Remove
                             System.out.println("Inserted, result=" + res);
                             break;
                         }
                         case "random":
                         case "r": {
-                            if (parts.length != 2) {
-                                System.out.println("Usage: [r|random] <amount>");
+                            if (parts.length != 3) {
+                                System.out.println("Usage: [r|random] <amount> <maxRandom>");
                                 break;
                             }
                             int amount = Integer.parseInt(parts[1]);
+                            int maxRandom = Integer.parseInt(parts[2]);
                             int seed = 12345;
 
                             int[] insertedKeys = new int[amount];
                             int i = 0;
 
                             int left = amount;
+
+                            int duplicateCounter = 0;
+
                             while (left > 0) {
-                                int value = random.nextInt() % 14;
+                                int value = random.nextInt() % maxRandom;
                                 value = Math.abs(value);
                                 try {
                                     isam.insert(new TRecord(value, value, value, value));
+                                    isam.print(); // TODO: REMOVE
                                     insertedKeys[i++] = value;
                                     left--;
                                 } catch (Exception ignored) {
+//                                    duplicateCounter++;
+//                                    if  (duplicateCounter > randomThresholdBreak) {
+//                                        System.out.println("Too many duplicate records. Try higher `maxRandom` value.");
+//                                        break;
+//                                    }
                                 }
                             }
+                            if (left == amount) {
+                                break;
+                            }
+
                             System.out.println("Inserted " + amount + " random records: ");
-                            for (int j = 0; j < amount; j++) {
+                            for (int j = 0; j < amount - left; j++) {
                                 System.out.print(insertedKeys[j]);
                                 if (j != amount - 1) {
-                                    System.out.print(", ");
+                                    System.out.print(" ");
                                 }
                             }
                             System.out.println();
@@ -106,7 +124,7 @@ public class ISAMShell {
                                 break;
                             }
                             int key = Integer.parseInt(parts[1]);
-                            TRecord rec = isam.getRecord(key);
+                            TRecord rec = isam.get(key);
                             if (rec == null) {
                                 System.out.println("Not found");
                             } else {
@@ -119,9 +137,24 @@ public class ISAMShell {
                             isam.print();
                             break;
                         }
-                        case "count":
-                        case "c": {
-                            System.out.println("Total records: " + isam.recordAmount());
+                        case "print sequence":
+                        case "ps": {
+                            isam.printInSequenceRW();
+                            break;
+                        }
+
+                        case "stats":
+                        case "s": {
+                            ISAM.IOStats io = isam.getStats();
+                            System.out.println("Stats: ");
+                            System.out.println("- Index reads: " + io.indexReads);
+                            System.out.println("- Index writes: " + io.indexWrites);
+                            System.out.println("- Records reads: " + io.recordsReads);
+                            System.out.println("- Records writes: " + io.recordsWrites);
+                            System.out.println("- Overflow reads: " + io.overflowReads);
+                            System.out.println("- Overflow writes: " + io.overflowWrites);
+                            System.out.println("== Total reads: " + io.totalReads());
+                            System.out.println("== Total writes: " + io.totalWrites());
                             break;
                         }
                         case "flush":
@@ -130,8 +163,7 @@ public class ISAMShell {
                             System.out.println("Flushed.");
                             break;
                         }
-                        case "cleanup":
-                        {
+                        case "cleanup": {
                             isam.cleanup();
                             System.out.println("Cleaned up.");
                             break;

@@ -3,7 +3,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public class IndexRecord extends Record {
-    int key;
     int pageNum;
     public IndexRecord(int key, int pageNum) {
         this.key = key;

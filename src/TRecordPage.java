@@ -56,13 +56,26 @@ public class TRecordPage extends Page<TRecord> {
     }
 
     @Override
-    protected void deleteRecord(int key) {
+    protected void delete(int key) {
 
     }
 
     @Override
-    protected void updateRecord(int key) {
+    protected int updateHard(int key, TRecord record) {
+        int pos = getPosFromRecord(record);
+        if (pos == -1) return -1;
+        data[pos] = record;
+        return pos;
+    }
 
+    @Override
+    protected int updateSoft(int key, TRecord record) {
+        int pos = getPosFromRecord(record);
+        if (pos == -1) return -1;
+        data[pos].a = record.a;
+        data[pos].b = record.b;
+        data[pos].h = record.h;
+        return pos;
     }
 
     @Override

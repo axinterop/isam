@@ -19,7 +19,6 @@ public class TRecord extends Record {
     boolean deleted;
 
     // Data
-    int key;
     double a, b, h;
     NextRecordPos next = new NextRecordPos();
 
@@ -30,8 +29,6 @@ public class TRecord extends Record {
         b = -1;
         h = -1;
     }
-
-    ;
 
     public TRecord(int key, double a, double b, double h) {
         deleted = false;

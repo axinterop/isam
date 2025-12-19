@@ -1,4 +1,6 @@
 import java.io.*;
+import java.util.Arrays;
+import java.util.Comparator;
 
 public abstract class Page<T extends Record> implements IDataSerializable {
     public int pageSize;
@@ -41,8 +43,12 @@ public abstract class Page<T extends Record> implements IDataSerializable {
     protected abstract void deserializeBody(DataInputStream dis) throws IOException;
 
     protected abstract int insert(T record);
-    protected abstract void deleteRecord(int key);
-    protected abstract void updateRecord(int key);
+    protected abstract void delete(int key);
+    // Update only data
+    protected abstract int updateSoft(int key, TRecord record);
+    // Update full record as object
+    protected abstract int updateHard(int key, TRecord record);
+
     protected abstract T getRecord(int key);
 
     protected T getRecordFromPos(int pos) {
@@ -50,6 +56,13 @@ public abstract class Page<T extends Record> implements IDataSerializable {
             return null;
         }
         return data[pos];
+    }
+
+    protected int getPosFromRecord(TRecord record) {
+        for (int i = 0; i < recordAmount; i++) {
+            if (record.key == data[i].key) return i;
+        }
+        return -1;
     }
 
     public int getSizeBytes() {

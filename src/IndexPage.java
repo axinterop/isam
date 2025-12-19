@@ -42,14 +42,20 @@ public class IndexPage extends Page<IndexRecord> {
     }
 
     @Override
-    protected void deleteRecord(int key) {
+    protected void delete(int key) {
 
     }
 
     @Override
-    protected void updateRecord(int key) {
-
+    protected int updateSoft(int key, TRecord record) {
+        return 0;
     }
+
+    @Override
+    protected int updateHard(int key, TRecord record) {
+        return 0;
+    }
+
 
     @Override
     protected IndexRecord getRecord(int key) {

@@ -22,6 +22,17 @@ public class TRecords extends PagedFile<TRecordPage> {
     // - 4 if record was inserted into a new page (requires index insert)
     public int insert(TRecord recordToInsert, int pageNum) throws IOException {
         TRecordPage trp = getPage(pageNum);
+        int trpRememberedFirstKey = trp.data[0].key;
+
+        if (!trp.isFull()) {
+            trp.insertAndSort(recordToInsert);
+            fileInsertedAmount++;
+            if (trp.data[0].key != trpRememberedFirstKey) {
+                // Index has change - needs update
+                return 3;
+            }
+            return 0;
+        }
 
         if (pageNum == 0 && recordToInsert.key < trp.data[0].key) {
             TRecord recordToTransfer = trp.data[0];
@@ -34,12 +45,6 @@ public class TRecords extends PagedFile<TRecordPage> {
                 overflow.insertToNewLL(recordToInsert, recordToTransfer);
             }
             return 3;
-        }
-
-        if (!trp.isFull()) {
-            trp.insertAndSort(recordToInsert);
-            fileInsertedAmount++;
-            return 0;
         }
 
         // Find previous record
