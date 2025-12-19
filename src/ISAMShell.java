@@ -1,4 +1,5 @@
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Random;
 import java.util.Scanner;
 
@@ -7,8 +8,6 @@ public class ISAMShell {
     private final ISAM isam;
 
     private final Random random = new Random(12345);
-
-    private int randomThresholdBreak = 100;
 
     public ISAMShell(ISAM isam) {
         this.isam = isam;
@@ -66,53 +65,45 @@ public class ISAMShell {
                             }
                             TRecord rec = new TRecord(key, a, b, h);
                             int res = isam.insert(rec);
-                            isam.print(); // TODO: Remove
                             System.out.println("Inserted, result=" + res);
                             break;
                         }
                         case "random":
                         case "r": {
-                            if (parts.length != 3) {
-                                System.out.println("Usage: [r|random] <amount> <maxRandom>");
+                            if (parts.length != 3 && parts.length != 4) {
+                                System.out.println("Usage: [r|random] <min> <max> <amount?>");
                                 break;
                             }
-                            int amount = Integer.parseInt(parts[1]);
+                            int minRandom = Integer.parseInt(parts[1]);
                             int maxRandom = Integer.parseInt(parts[2]);
-                            int seed = 12345;
 
+                            int amount = maxRandom -  minRandom;
+                            if (parts.length == 4) {
+                                amount = Integer.parseInt(parts[3]);
+                            }
                             int[] insertedKeys = new int[amount];
+                            Arrays.fill(insertedKeys, -1);
                             int i = 0;
 
-                            int left = amount;
+                            RandomPool rp = new RandomPool(random, minRandom, maxRandom);
 
-                            int duplicateCounter = 0;
-
-                            while (left > 0) {
-                                int value = random.nextInt() % maxRandom;
-                                value = Math.abs(value);
+                            while (i < amount && !rp.isEmpty()) {
+                                int value = rp.next();
                                 try {
                                     isam.insert(new TRecord(value, value, value, value));
-                                    isam.print(); // TODO: REMOVE
                                     insertedKeys[i++] = value;
-                                    left--;
                                 } catch (Exception ignored) {
-//                                    duplicateCounter++;
-//                                    if  (duplicateCounter > randomThresholdBreak) {
-//                                        System.out.println("Too many duplicate records. Try higher `maxRandom` value.");
-//                                        break;
-//                                    }
                                 }
-                            }
-                            if (left == amount) {
-                                break;
                             }
 
-                            System.out.println("Inserted " + amount + " random records: ");
-                            for (int j = 0; j < amount - left; j++) {
-                                System.out.print(insertedKeys[j]);
-                                if (j != amount - 1) {
-                                    System.out.print(" ");
-                                }
+                            if (i == 0) {
+                                System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
+                                break;
+                            }
+                            System.out.println("Inserted " + i + " random records: ");
+                            for (int k : insertedKeys) {
+                                if (k == -1) continue;
+                                System.out.print(k + " ");
                             }
                             System.out.println();
                             break;
@@ -139,6 +130,7 @@ public class ISAMShell {
                         }
                         case "print sequence":
                         case "ps": {
+                            System.out.println("Sequence: ");
                             isam.printInSequenceRW();
                             break;
                         }

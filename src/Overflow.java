@@ -36,14 +36,14 @@ public class Overflow extends PagedFile<TRecordPage> {
                     // here .insert() changes cachedPage, so `prev` loses its reference
                     // to the record that has been in cachedPage just before .insert()
                     prev.next = getLastAvailablePos();
-                    if (mainRecord.key != prev.key && prev.next.pageNum != prevCachedPageNum) {
-                        // TODO: FIX INSERTION
-                        // newly inserted record is on different page, now there is new cachedPage,
-                        // `prev`'s old state is written to disk.
-                        // we need to retrieve it and update with new pointer
+//                    if (mainRecord.key != prev.key && prev.next.pageNum != prevCachedPageNum) {
+//                        // TODO: FIX INSERTION
+//                        // newly inserted record is on different page, now there is new cachedPage,
+//                        // `prev`'s old state is written to disk.
+//                        // we need to retrieve it and update with new pointer
                         getPage(prevCachedPageNum); // is in cache
                         cachedPage.updateHard(prev.key, prev);
-                    }
+//                    }
                     insert(toInsert);
                     break;
                 }
