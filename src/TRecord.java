@@ -10,13 +10,22 @@ public class TRecord extends Record {
             pageNum = -1;
         }
 
+        public NextRecordPos(int pagePos, int pageNum) {
+            this.pagePos = pagePos;
+            this.pageNum = pageNum;
+        }
+
         public boolean exists() {
             return pagePos != -1 && pageNum != -1;
+        }
+        public void reset() {
+            pagePos = -1;
+            pageNum = -1;
         }
     }
 
     // Metadata
-    boolean deleted;
+//    boolean deleted;
 
     // Data
     double a, b, h;
@@ -83,7 +92,7 @@ public class TRecord extends Record {
             sb.append("-");
         }
         sb.append("]");
-        sb.append("\t\t\ta=" + a + " b=" + b + " h=" + h);
+//        sb.append("\t\t\ta=" + a + " b=" + b + " h=" + h);
         return sb.toString();
     }
 

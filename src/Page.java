@@ -1,6 +1,4 @@
 import java.io.*;
-import java.util.Arrays;
-import java.util.Comparator;
 
 public abstract class Page<T extends Record> implements IDataSerializable {
     public int pageSize;
@@ -43,7 +41,7 @@ public abstract class Page<T extends Record> implements IDataSerializable {
     protected abstract void deserializeBody(DataInputStream dis) throws IOException;
 
     protected abstract int insert(T record);
-    protected abstract void delete(int key);
+    protected abstract int delete(int key);
     // Update only data
     protected abstract int updateSoft(int key, TRecord record);
     // Update full record as object
@@ -86,12 +84,15 @@ public abstract class Page<T extends Record> implements IDataSerializable {
         return recordAmount == pageSize;
     }
 
-    public int getLastFreeSlot() {
-        if (isFull()) {
-            throw new IllegalStateException("Cannot get last free slot (page is full)");
+    public boolean isAvailable() {
+        if (!isFull()) return true;
+        for (int i = 0; i < pageSize; i++) {
+            if (data[i].deleted)
+                return true;
         }
-        return recordAmount;
+        return false;
     }
+
 
     public void print(boolean cached) {
         for (int i = 0; i < pageSize; i++) {

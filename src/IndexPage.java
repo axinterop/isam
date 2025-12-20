@@ -42,8 +42,9 @@ public class IndexPage extends Page<IndexRecord> {
     }
 
     @Override
-    protected void delete(int key) {
+    protected int delete(int key) {
 
+        return key;
     }
 
     @Override

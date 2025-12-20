@@ -19,6 +19,9 @@ public class Overflow extends PagedFile<TRecordPage> {
             }
             TRecord curr = getRecordFromOverflow(prev.next);
             if (curr.key == key) {
+                if (curr.deleted) {
+                    return null;
+                }
                 return curr;
             }
             prev = curr;
@@ -36,14 +39,9 @@ public class Overflow extends PagedFile<TRecordPage> {
                     // here .insert() changes cachedPage, so `prev` loses its reference
                     // to the record that has been in cachedPage just before .insert()
                     prev.next = getLastAvailablePos();
-//                    if (mainRecord.key != prev.key && prev.next.pageNum != prevCachedPageNum) {
-//                        // TODO: FIX INSERTION
-//                        // newly inserted record is on different page, now there is new cachedPage,
-//                        // `prev`'s old state is written to disk.
-//                        // we need to retrieve it and update with new pointer
-                        getPage(prevCachedPageNum); // is in cache
-                        cachedPage.updateHard(prev.key, prev);
-//                    }
+                    getPage(prevCachedPageNum);
+                    cachedPage.updateHard(prev.key, prev);
+
                     insert(toInsert);
                     break;
                 }
@@ -70,6 +68,15 @@ public class Overflow extends PagedFile<TRecordPage> {
         return 0;
     }
 
+    public int deleteRecord(TRecord mainRecord, int key) throws IOException {
+        TRecord toDelete = findRecord(mainRecord, key);
+        if (toDelete == null) {
+            return -1;
+        }
+        toDelete.deleted = true;
+        fileDeletedAmount++;
+        return 0;
+    }
 
     public TRecord getRecordFromOverflow(TRecord.NextRecordPos next) throws IOException {
         if (!next.exists()) return null;

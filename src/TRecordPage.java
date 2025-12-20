@@ -40,24 +40,46 @@ public class TRecordPage extends Page<TRecord> {
 
 
     @Override
-    protected int insert(TRecord record)  {
-        if (isFull()) {
-            throw new IllegalStateException("Trying to insert TRecord to full page");
+    protected int insert(TRecord record) {
+        if (!isAvailable()) {
+            throw new IllegalStateException("Trying to insert TRecord to non-available page");
+        }
+        for (int i = 0; i < recordAmount; i++) {
+            if (data[i].key == record.key) {
+                if (data[i].deleted) {
+                    data[i].a = record.a;
+                    data[i].b = record.b;
+                    data[i].h = record.h;
+                    data[i].deleted = false;
+                    return 0;
+                } else {
+                    throw new IllegalStateException("Page already has Record that is not deleted");
+                }
+            }
         }
         data[recordAmount] = record;
         recordAmount++;
         return 0;
     }
 
-    protected int insertAndSort(TRecord record)  {
+    protected int insertAndSort(TRecord record) {
         insert(record);
         sortPageByKey();
         return 0;
     }
 
     @Override
-    protected void delete(int key) {
+    protected int delete(int key) {
+        for (int i = 0; i < recordAmount; i++) {
+            if (data[i].key == key) {
 
+                if (data[i].deleted) return -1;
+
+                data[i].deleted = true;
+                return 0;
+            }
+        }
+        return -1;
     }
 
     @Override
@@ -79,12 +101,12 @@ public class TRecordPage extends Page<TRecord> {
     }
 
     @Override
-    protected TRecord getRecord(int key)  {
+    protected TRecord getRecord(int key) {
         if (isEmpty()) {
             throw new IllegalStateException("Trying to get TRecord from empty page");
         }
         for (int i = 0; i < pageSize; i++) {
-            if (data[i].key == key) {
+            if (data[i].key == key && !data[i].deleted) {
                 return data[i];
             }
         }
@@ -111,7 +133,7 @@ public class TRecordPage extends Page<TRecord> {
                 lastPos = i;
             }
         }
-        return lastPos  == -1 ? null : data[lastPos];
+        return lastPos == -1 ? null : data[lastPos];
     }
 
     public void sortPageByKey() {

@@ -9,6 +9,9 @@ public class Main {
 
         int pageSize = 4;
 
+        // TODO: Add insertion of key that was deleted (updateSoft, deleted=false)
+        // TODO: Update func
+
         ISAM isam = new ISAM(INDEX_FILE, RECORDS_FILE, OVERFLOW_FILE, pageSize);
         ISAMShell shell = new ISAMShell(isam);
         shell.run();

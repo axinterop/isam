@@ -15,12 +15,18 @@ public class ISAMShell {
 
     private void printCommands() {
         System.out.println("Commands:");
-        System.out.println("  [i]nsert <key> <a> <b> <h>");
-        System.out.println("  [r]andom <amount> <maxRandom>");
+        System.out.println("  [i|insert] <key> <a?> <b?> <h?>");
+        System.out.println("  [r|random] [<max>|<min> <max> <amount?>]");
         System.out.println("  [g]et <key>");
+        System.out.println("  [d]elete <key>");
+        System.out.println("  [dr|delete random] [<amount>|<min> <max> <amount>]");
+        System.out.println();
         System.out.println("  [p]rint");
-        System.out.println("  [ps|print sequence]");
+        System.out.println("  [ps|print sequence] <[all]?> - 'all' parameters shows deleted records");
         System.out.println("  [s]tats");
+        System.out.println("  auto - toggle auto reorganization (default 'on')");
+        System.out.println("  reorganize");
+        System.out.println();
         System.out.println("  cleanup");
         System.out.println("  [f]lush");
         System.out.println("  [h]elp - show commands");
@@ -33,6 +39,25 @@ public class ISAMShell {
             printCommands();
 
             while (true) {
+                if (isam.overflowReachedThreshold()) {
+                    String s = String.format("Overflow file reached threshold (%.2f/%.2f).", isam.currentOverflowRatio() * 100, isam.overflowThreshold * 100);
+                    System.out.println(s);
+                }
+                if (isam.deletionReachedThreshold()) {
+                    String s = String.format("Deletion counter reached threshold (%.2f/%.2f).", isam.currentDeletionRatio() * 100, isam.deletionThreshold * 100);
+                    System.out.println(s);
+                }
+                if (isam.needsReorganization()) {
+                    System.out.println("Database needs reorganization.");
+                    if (!isam.autoReorganization) {
+                        System.out.print("Automatic reorganization is disabled. ");
+                        System.out.println("You can run it manually with `reorganize` command or enable with 'auto' command.");
+                    } else {
+                        System.out.print("Automatic reorganization is enabled. ");
+                        System.out.println("It will be triggered automatically on any upcoming non-read command.");
+                    }
+                }
+
                 System.out.print("> ");
                 if (!scanner.hasNextLine()) {
                     break;
@@ -54,7 +79,6 @@ public class ISAMShell {
                                 break;
                             }
 
-                            int key = Integer.parseInt(parts[1]);
                             double a = 1;
                             double b = 2;
                             double h = 3;
@@ -63,21 +87,44 @@ public class ISAMShell {
                                 b = Double.parseDouble(parts[3]);
                                 h = Double.parseDouble(parts[4]);
                             }
-                            TRecord rec = new TRecord(key, a, b, h);
-                            int res = isam.insert(rec);
-                            System.out.println("Inserted, result=" + res);
+
+                            String[] keyStrings = parts[1].split(",");
+                            for (String ks : keyStrings) {
+                                ks = ks.trim();
+                                if (ks.isEmpty()) {
+                                    continue;
+                                }
+                                int key = Integer.parseInt(ks);
+                                TRecord rec = new TRecord(key, a, b, h);
+                                int res = isam.insert(rec);
+                                System.out.println("Inserted key=" + key + ", result=" + res);
+                            }
                             break;
                         }
                         case "random":
                         case "r": {
-                            if (parts.length != 3 && parts.length != 4) {
-                                System.out.println("Usage: [r|random] <min> <max> <amount?>");
+                            if (parts.length != 2 && parts.length != 3 && parts.length != 4) {
+                                System.out.println("Usage:\n\t[r|random] <max>");
+                                System.out.println("\t[r|random] <min> <max> <amount?>");
                                 break;
                             }
-                            int minRandom = Integer.parseInt(parts[1]);
-                            int maxRandom = Integer.parseInt(parts[2]);
+                            if (isam.autoReorganization) {
+                                System.out.println("Automatic reorganization is enabled. Database will be reorganized during random insert.");
+                            } else {
+                                System.out.println("Automatic reorganization is disabled. Database won't be reorganized during random insert.");
+                            }
 
-                            int amount = maxRandom -  minRandom;
+                            int minRandom = Integer.parseInt(parts[1]);
+                            int maxRandom;
+
+                            if (parts.length == 2) {
+                                maxRandom = minRandom;
+                                minRandom = 0;
+                            } else {
+                                maxRandom = Integer.parseInt(parts[2]);
+                            }
+
+                            int amount = maxRandom - minRandom;
                             if (parts.length == 4) {
                                 amount = Integer.parseInt(parts[3]);
                             }
@@ -94,7 +141,13 @@ public class ISAMShell {
                                     insertedKeys[i++] = value;
                                 } catch (Exception ignored) {
                                 }
+                                if (isam.autoReorganization) {
+                                    int r = isam.reorganize();
+                                    if (r != -1)
+                                        System.out.println("Database has been reorganized (automatically).");
+                                }
                             }
+
 
                             if (i == 0) {
                                 System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
@@ -117,10 +170,78 @@ public class ISAMShell {
                             int key = Integer.parseInt(parts[1]);
                             TRecord rec = isam.get(key);
                             if (rec == null) {
-                                System.out.println("Not found");
+                                System.out.println("Not found.");
                             } else {
                                 System.out.println("Record: " + rec);
                             }
+                            break;
+                        }
+                        case "delete":
+                        case "d": {
+                            if (parts.length != 2) {
+                                System.out.println("Usage: [d|delete] <key>");
+                                break;
+                            }
+                            int key = Integer.parseInt(parts[1]);
+                            int result = isam.delete(key);
+                            if (result == -1) {
+                                System.out.println("Not found.");
+                            } else {
+                                System.out.println("Record deleted.");
+                            }
+                            break;
+                        }
+
+                        case "delete random":
+                        case "dr": {
+                            if (parts.length != 2 && parts.length != 4) {
+                                System.out.println("Usage:\n\t[dr|delete random] <amount>");
+                                System.out.println("\t[dr|delete random] <min> <max> <amount>");
+                                break;
+                            }
+
+                            int amount, minRandom, maxRandom;
+
+                            if (parts.length == 2) {
+                                amount = Integer.parseInt(parts[1]);
+                                minRandom = 0;
+                                maxRandom = isam.insertedRecordAmount();
+                            } else {
+                                minRandom = Integer.parseInt(parts[1]);
+                                maxRandom = Integer.parseInt(parts[2]);
+                                amount = Integer.parseInt(parts[3]);
+                            }
+
+                            int[] deletedKeys = new int[amount];
+                            Arrays.fill(deletedKeys, -1);
+                            int i = 0;
+
+                            RandomPool rp = new RandomPool(random, minRandom, maxRandom);
+
+                            while (i < amount && !rp.isEmpty()) {
+                                int value = rp.next();
+                                try {
+                                    if (isam.delete(value) == -1) continue;
+                                    deletedKeys[i++] = value;
+                                } catch (Exception ignored) {
+                                }
+                                if (isam.autoReorganization) {
+                                    int r = isam.reorganize();
+                                    if (r != -1)
+                                        System.out.println("Database has been reorganized (automatically).");
+                                }
+                            }
+
+                            if (i == 0) {
+                                System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
+                                break;
+                            }
+                            System.out.println("Randomly deleted " + i + " records: ");
+                            for (int k : deletedKeys) {
+                                if (k == -1) continue;
+                                System.out.print(k + " ");
+                            }
+                            System.out.println();
                             break;
                         }
                         case "print":
@@ -130,23 +251,40 @@ public class ISAMShell {
                         }
                         case "print sequence":
                         case "ps": {
+                            if (parts.length != 1 && parts.length != 2) {
+                                System.out.println("Usage: [ps|print sequence] <all?>");
+                                break;
+                            }
+
                             System.out.println("Sequence: ");
-                            isam.printInSequenceRW();
+
+                            boolean showDeleted = false;
+                            if (parts.length == 2) {
+                                if (parts[1].equals("all")) {
+                                    showDeleted = true;
+                                    System.out.println("(deleted keys are followed with underscore '_')");
+                                }
+                            }
+                            isam.printInSequenceRW(showDeleted);
                             break;
                         }
 
                         case "stats":
                         case "s": {
-                            ISAM.IOStats io = isam.getStats();
-                            System.out.println("Stats: ");
-                            System.out.println("- Index reads: " + io.indexReads);
-                            System.out.println("- Index writes: " + io.indexWrites);
-                            System.out.println("- Records reads: " + io.recordsReads);
-                            System.out.println("- Records writes: " + io.recordsWrites);
-                            System.out.println("- Overflow reads: " + io.overflowReads);
-                            System.out.println("- Overflow writes: " + io.overflowWrites);
-                            System.out.println("== Total reads: " + io.totalReads());
-                            System.out.println("== Total writes: " + io.totalWrites());
+                            isam.printStats();
+                            break;
+                        }
+                        case "auto": {
+                            isam.autoReorganization = !isam.autoReorganization;
+                            if (isam.autoReorganization) {
+                                System.out.println("Auto reorganization enabled.");
+                            } else {
+                                System.out.println("Auto reorganization disabled.");
+                            }
+                            break;
+                        }
+                        case "reorganize": {
+                            isam.reorganize();
                             break;
                         }
                         case "flush":
@@ -156,7 +294,7 @@ public class ISAMShell {
                             break;
                         }
                         case "cleanup": {
-                            isam.cleanup();
+                            isam.cleanupFull();
                             System.out.println("Cleaned up.");
                             break;
                         }

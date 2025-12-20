@@ -24,7 +24,7 @@ public class TRecords extends PagedFile<TRecordPage> {
         TRecordPage trp = getPage(pageNum);
         int trpRememberedFirstKey = trp.data[0].key;
 
-        if (!trp.isFull()) {
+        if (trp.isAvailable()) {
             trp.insertAndSort(recordToInsert);
             fileInsertedAmount++;
             if (trp.data[0].key != trpRememberedFirstKey) {
@@ -79,9 +79,27 @@ public class TRecords extends PagedFile<TRecordPage> {
         }
         if (trp.isOverflown()) {
             TRecord mainRecord = trp.findPrevious(key);
-            return overflow.findRecord(mainRecord, key);
+            if (mainRecord != null) {
+                return overflow.findRecord(mainRecord, key);
+            }
         }
         return null;
+    }
+
+    public int deleteRecord(int key, int pageNum) throws IOException {
+        TRecordPage trp = getPage(pageNum);
+        int r = trp.delete(key);
+        if (r == 0) {
+            fileDeletedAmount++;
+            return 0;
+        }
+        if (trp.isOverflown()) {
+            TRecord mainRecord = trp.findPrevious(key);
+            if (mainRecord != null && mainRecord.next.exists()) {
+                return overflow.deleteRecord(mainRecord, key);
+            }
+        }
+        return -1;
     }
 
     @Override
