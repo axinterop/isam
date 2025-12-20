@@ -103,7 +103,8 @@ public abstract class PagedFile<T extends Page> {
 
     public void print() throws IOException {
         System.out.println("    " + filename);
-        System.out.println("- Records: " + fileInsertedAmount);
+        System.out.println("- Inserted records: " + fileInsertedAmount);
+        System.out.println("- Deleted records: " + fileDeletedAmount);
         T p = createPageInstance();
         for (int n = 0; n < pageAmount; n++) {
             if (n == cachedPage.pageNum) {

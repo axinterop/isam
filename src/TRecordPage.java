@@ -41,21 +41,8 @@ public class TRecordPage extends Page<TRecord> {
 
     @Override
     protected int insert(TRecord record) {
-        if (!isAvailable()) {
+        if (isFull()) {
             throw new IllegalStateException("Trying to insert TRecord to non-available page");
-        }
-        for (int i = 0; i < recordAmount; i++) {
-            if (data[i].key == record.key) {
-                if (data[i].deleted) {
-                    data[i].a = record.a;
-                    data[i].b = record.b;
-                    data[i].h = record.h;
-                    data[i].deleted = false;
-                    return 0;
-                } else {
-                    throw new IllegalStateException("Page already has Record that is not deleted");
-                }
-            }
         }
         data[recordAmount] = record;
         recordAmount++;

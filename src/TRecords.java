@@ -24,7 +24,7 @@ public class TRecords extends PagedFile<TRecordPage> {
         TRecordPage trp = getPage(pageNum);
         int trpRememberedFirstKey = trp.data[0].key;
 
-        if (trp.isAvailable()) {
+        if (!trp.isFull()) {
             trp.insertAndSort(recordToInsert);
             fileInsertedAmount++;
             if (trp.data[0].key != trpRememberedFirstKey) {
