@@ -1,5 +1,6 @@
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 
 public class ISAM {
     String indexFile = null;
@@ -10,15 +11,16 @@ public class ISAM {
 
     Index index;
     TRecords records;
+    ArrayList<IOStats> operationsStats;
 
-    IOStats beforeLastOperation = new IOStats();
+//    IOStats beforeLastOperation = new IOStats();
 
-    public final double overflowThreshold = 0.5; // 50%
-    public final double deletionThreshold = 0.2; // 20%
+    public double overflowThreshold = 0.5; // 50%
+    public double deletionThreshold = 0.2; // 20%
     public boolean autoReorganization = false;
 
-    private String tempIndexFile = "temp_index.dat";
-    private String tempRecordFile = "temp_record.dat";
+    private final String tempIndexFile = "temp_index.dat";
+    private final String tempRecordFile = "temp_record.dat";
 
     public ISAM(String indexFile, String recordsFile, String overflowFile, int pageSize) throws IOException {
         this.indexFile = indexFile;
@@ -28,16 +30,15 @@ public class ISAM {
         this.pageSize = pageSize;
         index = new Index(indexFile, pageSize);
         records = new TRecords(recordsFile, overflowFile, pageSize);
+
+        operationsStats = new ArrayList<>();
+        operationsStats.add(getStats());
     }
 
     public TRecord get(int key) throws IOException {
-        beforeLastOperation = getStats();
-
-        int pageNum = index.lookUpPageFor(key);
-        if (pageNum == -1) {
-            return null;
-        }
-        return records.getRecord(key, pageNum);
+        TRecord r = _get(key);
+        operationsStats.add(getStats());
+        return r;
     }
 
     private TRecord _get(int key) throws IOException {
@@ -48,11 +49,14 @@ public class ISAM {
         return records.getRecord(key, pageNum);
     }
 
-
     public int insert(TRecord record) throws IOException {
-        if (autoReorganization) reorganize();
+        int r = _insert(record);
+        operationsStats.add(getStats());
+        return r;
+    }
 
-        beforeLastOperation = getStats();
+    private int _insert(TRecord record) throws IOException {
+        if (autoReorganization) reorganize(false);
 
         if (record.key < 0) {
             throw new IllegalArgumentException("Invalid key (negative)");
@@ -63,12 +67,14 @@ public class ISAM {
             IndexRecord ir = new IndexRecord(record.key, 0);
             index.insert(ir);
             index.smallestKey = ir.key;
+
             return 0;
         }
 
         if (record.key < index.smallestKey) {
             records.insert(record, 0);
             index.updateSmallestKey(record.key);
+
             return 0;
         }
 
@@ -86,26 +92,41 @@ public class ISAM {
             IndexRecord ir = new IndexRecord(record.key, records.pageAmount - 1);
             index.insert(ir);
         }
+
         return 0;
     }
 
     public int update(TRecord record) throws IOException {
-        if (autoReorganization) reorganize();
+        int r = _update(record);
+        operationsStats.add(getStats());
+        return r;
+    }
+
+    private int _update(TRecord record) throws IOException {
+        if (autoReorganization) reorganize(false);
 
         int pageNum = index.lookUpPageFor(record.key);
         if (pageNum == -1) {
             return -1;
         }
+
         return records.updateRecord(record, pageNum);
     }
 
     public int delete(int key) throws IOException {
-        if (autoReorganization) reorganize();
+        int r = _delete(key);
+        operationsStats.add(getStats());
+        return r;
+    }
+
+    private int _delete(int key) throws IOException {
+        if (autoReorganization) reorganize(false);
 
         int pageNum = index.lookUpPageFor(key);
         if (pageNum == -1) {
             return -1;
         }
+
         return records.deleteRecord(key, pageNum);
     }
 
@@ -117,19 +138,21 @@ public class ISAM {
         return records.fileDeletedAmount + records.overflow.fileDeletedAmount;
     }
 
-    public int reorganize() throws IOException {
-        return reorganize(false);
+    public int reorganize(boolean forced) throws IOException {
+        int r = _reorganize(forced);
+        operationsStats.add(getStats());
+        return r;
     }
 
-    public int reorganize(boolean force) throws IOException {
-        if (!force && !needsReorganization()) {
+    private int _reorganize(boolean forced) throws IOException {
+        if (!forced && !needsReorganization()) {
             return -1;
         }
 
+        IOStats reorganizeBeforeStats = getStats();
+
         Index newIndex = new Index(tempIndexFile, pageSize);
         TRecords newTRecords = new TRecords(tempRecordFile, overflowFile, pageSize); // TODO: overflowFile?
-
-        beforeLastOperation = getStats();
 
         TRecord.NextRecordPos rememberedPos = new TRecord.NextRecordPos();
 
@@ -154,9 +177,11 @@ public class ISAM {
                 }
 
                 int result = newTRecords.insert(r, insertPageNum);
-                if (result != 0 && result != 3) throw new IllegalStateException("Insertion required additional calls.");
+                if (result != 0 && result != 3) {
+                    throw new IllegalStateException("Insertion required additional calls.");
+                }
 
-                if (newInserted == magic_number) {
+                if (newInserted != 0 && newInserted % magic_number == 0) {
                     IndexRecord ir = new IndexRecord(r.key, insertPageNum);
                     newIndex.insert(ir);
                 }
@@ -179,9 +204,11 @@ public class ISAM {
                     }
 
                     result = newTRecords.insert(r, insertPageNum);
-                    if (result != 0 && result != 3) throw new IllegalStateException("Insertion required additional calls.");
+                    if (result != 0 && result != 3) {
+                        throw new IllegalStateException("Insertion required additional calls.");
+                    }
 
-                    if (newInserted == magic_number) {
+                    if (newInserted != 0 && newInserted % magic_number == 0) {
                         IndexRecord ir = new IndexRecord(r.key, insertPageNum);
                         newIndex.insert(ir);
                     }
@@ -210,7 +237,6 @@ public class ISAM {
         index = newIndex;
         records = newTRecords;
 
-
         index.filename = this.indexFile;
         records.filename = this.recordsFile;
         index.pageReadCount += afterReorganization.indexReads;
@@ -219,10 +245,40 @@ public class ISAM {
         records.pageWriteCount += afterReorganization.recordsWrites;
         records.overflow.pageReadCount += afterReorganization.overflowReads;
         records.overflow.pageWriteCount += afterReorganization.overflowWrites;
-
-        print();
-
         return 0;
+    }
+
+    public int randomInsert(int amount, RandomPool rp, int[] insertedKeys) {
+        int i = 0;
+        while (i < amount && !rp.isEmpty()) {
+            int value = rp.next();
+            try {
+                _insert(new TRecord(value, value, value, value));
+                insertedKeys[i++] = value;
+            } catch (Exception ignored) {
+            }
+        }
+        operationsStats.add(getStats());
+        return i;
+    }
+
+    public int randomDelete(int amount, RandomPool rp, int[] deletedKeys) throws IOException {
+        int i = 0;
+        while (i < amount && !rp.isEmpty()) {
+            int value = rp.next();
+            try {
+                if (_delete(value) == -1) continue;
+                deletedKeys[i++] = value;
+            } catch (Exception ignored) {
+            }
+            if (autoReorganization) {
+                int r = _reorganize(false);
+                if (r != -1)
+                    System.out.println("Database has been reorganized (automatically).");
+            }
+        }
+        operationsStats.add(getStats());
+        return i;
     }
 
     public boolean needsReorganization() {
@@ -254,8 +310,6 @@ public class ISAM {
 
     // TODO: REMOVE (DEBUG)
     public void flush() throws IOException {
-        beforeLastOperation = getStats();
-
         index.writeCachedPage();
         records.writeCachedPage();
         records.overflow.writeCachedPage();
@@ -272,7 +326,10 @@ public class ISAM {
 
         index = new Index(indexFile, pageSize);
         records = new TRecords(recordsFile, overflowFile, pageSize);
-        beforeLastOperation = getStats();
+        if (operationsStats != null) {
+            operationsStats.clear();
+            operationsStats.add(getStats());
+        }
     }
 
     public void cleanupReorganization() {
@@ -316,6 +373,17 @@ public class ISAM {
             System.out.println("== Total reads:     " + this.totalReads());
             System.out.println("== Total writes:    " + this.totalWrites());
         }
+
+        public IOStats minus(IOStats stats) {
+            IOStats io = new IOStats();
+            io.indexReads = this.indexReads - stats.indexReads;
+            io.indexWrites = this.indexWrites - stats.indexWrites;
+            io.recordsReads = this.recordsReads - stats.recordsReads;
+            io.recordsWrites = this.recordsWrites - stats.recordsWrites;
+            io.overflowReads = this.overflowReads - stats.overflowReads;
+            io.overflowWrites = this.overflowWrites - stats.overflowWrites;
+            return io;
+        }
     }
 
     public IOStats getStats() {
@@ -329,20 +397,8 @@ public class ISAM {
         return io;
     }
 
-    public IOStats getStatsSinceLastOp() {
-        IOStats io = new IOStats();
-        io.indexReads = index.pageReadCount - beforeLastOperation.indexReads;
-        io.indexWrites = index.pageWriteCount - beforeLastOperation.indexWrites;
-        io.recordsReads = records.pageReadCount - beforeLastOperation.recordsReads;
-        io.recordsWrites = records.pageWriteCount - beforeLastOperation.recordsWrites;
-        io.overflowReads = records.overflow.pageReadCount - beforeLastOperation.overflowReads;
-        io.overflowWrites = records.overflow.pageWriteCount - beforeLastOperation.overflowWrites;
-        return io;
-    }
-
     // TODO: printInSequenceRW influences RW counters, change it
     public void printInSequenceRW(boolean showDeleted) throws IOException {
-        beforeLastOperation = getStats();
 
         for (int pi = 0; pi < records.pageAmount; pi++) {
             TRecordPage p = records.getPage(pi);
@@ -371,7 +427,10 @@ public class ISAM {
     }
 
     public void printStatsSinceLastOp() {
-        IOStats io = getStatsSinceLastOp();
+        if (operationsStats.size() < 2) {
+            return;
+        }
+        IOStats io = operationsStats.getLast().minus(operationsStats.get(operationsStats.size() - 2));
         if (io.totalReads() != 0 || io.totalWrites() != 0) {
             System.out.println("[S] Last operation required:");
         }
@@ -402,6 +461,7 @@ public class ISAM {
     public void printStats() {
         System.out.println("\tStats: ");
         System.out.println("Configuration stats:");
+        System.out.println("- Page size:                        " + pageSize);
         System.out.println("- Current overflow ratio:           " + currentOverflowRatio() * 100 + "%");
         System.out.println("- Overflow threshold:               " + overflowThreshold * 100 + "%");
         System.out.println("- Current deletion ratio:           " + currentDeletionRatio() * 100 + "%");
@@ -415,6 +475,14 @@ public class ISAM {
 
     public void printIOStats() {
         getStats().print();
+    }
+
+    public void setOverflowThreshold(double threshold) {
+        this.overflowThreshold = threshold;
+    }
+
+    public void setDeletionThreshold(double threshold) {
+        this.deletionThreshold = threshold;
     }
 
 }

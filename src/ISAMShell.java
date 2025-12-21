@@ -1,4 +1,5 @@
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
 import java.util.Scanner;
@@ -9,8 +10,11 @@ public class ISAMShell {
 
     private final Random random = new Random(12345);
 
+    ArrayList<String> executedCommands;
+
     public ISAMShell(ISAM isam) {
         this.isam = isam;
+        this.executedCommands = new ArrayList<>();
     }
 
     private void printCommands() {
@@ -65,297 +69,270 @@ public class ISAMShell {
                 if (!scanner.hasNextLine()) {
                     break;
                 }
+
                 String line = scanner.nextLine().trim();
-                if (line.isEmpty()) {
-                    continue;
-                }
+                if (line.isEmpty()) continue;
 
-                String[] parts = line.split("\\s+");
-                String cmd = parts[0].toLowerCase();
-
-                try {
-                    switch (cmd) {
-                        case "get":
-                        case "g": {
-                            if (parts.length != 2) {
-                                System.out.println("Usage: [g|get] <key>");
-                                break;
-                            }
-                            int key = Integer.parseInt(parts[1]);
-                            TRecord rec = isam.get(key);
-                            if (rec == null) {
-                                System.out.println("Not found.");
-                            } else {
-                                System.out.println("Record: " + rec);
-                            }
-                            break;
-                        }
-                        case "insert":
-                        case "i": {
-                            if (parts.length != 2 && parts.length != 5) {
-                                System.out.println("Usage: [i|insert] <key> <a?> <b?> <h?>");
-                                break;
-                            }
-
-                            double a = 1;
-                            double b = 2;
-                            double h = 3;
-                            if (parts.length == 5) {
-                                a = Double.parseDouble(parts[2]);
-                                b = Double.parseDouble(parts[3]);
-                                h = Double.parseDouble(parts[4]);
-                            }
-
-                            String[] keyStrings = parts[1].split(",");
-                            for (String ks : keyStrings) {
-                                ks = ks.trim();
-                                if (ks.isEmpty()) {
-                                    continue;
-                                }
-                                int key = Integer.parseInt(ks);
-                                TRecord rec = new TRecord(key, a, b, h);
-                                int res = isam.insert(rec);
-                                System.out.println("Inserted key=" + key + ", result=" + res);
-                            }
-                            break;
-                        }
-                        case "update":
-                        case "u": {
-                            if (parts.length != 5) {
-                                System.out.println("Usage: [u|update] <key> <a> <b> <h>");
-                                break;
-                            }
-                            int key = Integer.parseInt(parts[1]);
-                            int a = Integer.parseInt(parts[2]);
-                            int b = Integer.parseInt(parts[3]);
-                            int h = Integer.parseInt(parts[4]);
-                            TRecord rec = new TRecord(key, a, b, h);
-                            int result = isam.update(rec);
-                            if (result == -1) {
-                                System.out.println("Not found.");
-                            } else {
-                                System.out.println("Record updated.");
-                            }
-                            break;
-                        }
-                        case "delete":
-                        case "d": {
-                            if (parts.length != 2) {
-                                System.out.println("Usage: [d|delete] <key>");
-                                break;
-                            }
-                            int key = Integer.parseInt(parts[1]);
-                            int result = isam.delete(key);
-                            if (result == -1) {
-                                System.out.println("Not found.");
-                            } else {
-                                System.out.println("Record deleted.");
-                            }
-                            break;
-                        }
-                        case "random":
-                        case "r": {
-                            if (parts.length != 2 && parts.length != 3 && parts.length != 4) {
-                                System.out.println("Usage:\n\t[r|random] <max>");
-                                System.out.println("\t[r|random] <min> <max> <amount?>");
-                                break;
-                            }
-
-                            int minRandom = Integer.parseInt(parts[1]);
-                            int maxRandom;
-
-                            if (parts.length == 2) {
-                                maxRandom = minRandom;
-                                minRandom = 0;
-                            } else {
-                                maxRandom = Integer.parseInt(parts[2]);
-                            }
-
-                            int amount = maxRandom - minRandom;
-                            if (parts.length == 4) {
-                                amount = Integer.parseInt(parts[3]);
-                            }
-                            int[] insertedKeys = new int[amount];
-                            Arrays.fill(insertedKeys, -1);
-                            int i = 0;
-
-                            RandomPool rp = new RandomPool(random, minRandom, maxRandom);
-
-                            while (i < amount && !rp.isEmpty()) {
-                                int value = rp.next();
-                                try {
-                                    isam.insert(new TRecord(value, value, value, value));
-                                    insertedKeys[i++] = value;
-                                } catch (Exception ignored) {
-                                }
-                                if (isam.autoReorganization) {
-                                    int r = isam.reorganize();
-                                    if (r != -1) {
-                                        System.out.println("Inserted " + i + " random records: ");
-                                        for (int k : insertedKeys) {
-                                            if (k == -1) continue;
-                                            System.out.print(k + " ");
-                                        }
-                                        System.out.println();
-                                        System.out.println("Database has been reorganized (automatically).");
-                                    }
-                                }
-                            }
-                            System.out.println("Inserted " + i + " random records: ");
-                            for (int k : insertedKeys) {
-                                if (k == -1) continue;
-                                System.out.print(k + " ");
-                            }
-                            System.out.println();
-
-                            if (i == 0) {
-                                System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
-                                break;
-                            }
-                            break;
-                        }
-
-                        case "delete random":
-                        case "dr": {
-                            if (parts.length != 2 && parts.length != 4) {
-                                System.out.println("Usage:\n\t[dr|delete random] <amount>");
-                                System.out.println("\t[dr|delete random] <min> <max> <amount>");
-                                break;
-                            }
-
-                            int amount, minRandom, maxRandom;
-
-                            if (parts.length == 2) {
-                                amount = Integer.parseInt(parts[1]);
-                                minRandom = 0;
-                                maxRandom = isam.insertedRecordAmount();
-                            } else {
-                                minRandom = Integer.parseInt(parts[1]);
-                                maxRandom = Integer.parseInt(parts[2]);
-                                amount = Integer.parseInt(parts[3]);
-                            }
-
-                            int[] deletedKeys = new int[amount];
-                            Arrays.fill(deletedKeys, -1);
-                            int i = 0;
-
-                            RandomPool rp = new RandomPool(random, minRandom, maxRandom);
-
-                            while (i < amount && !rp.isEmpty()) {
-                                int value = rp.next();
-                                try {
-                                    if (isam.delete(value) == -1) continue;
-                                    deletedKeys[i++] = value;
-                                } catch (Exception ignored) {
-                                }
-                                if (isam.autoReorganization) {
-                                    int r = isam.reorganize();
-                                    if (r != -1)
-                                        System.out.println("Database has been reorganized (automatically).");
-                                }
-                            }
-
-                            if (i == 0) {
-                                System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
-                                break;
-                            }
-                            System.out.println("Randomly deleted " + i + " records: ");
-                            for (int k : deletedKeys) {
-                                if (k == -1) continue;
-                                System.out.print(k + " ");
-                            }
-                            System.out.println();
-                            break;
-                        }
-                        case "print":
-                        case "p": {
-                            isam.print();
-                            break;
-                        }
-                        case "print sequence":
-                        case "ps": {
-                            if (parts.length != 1 && parts.length != 2) {
-                                System.out.println("Usage: [ps|print sequence] <all?>");
-                                break;
-                            }
-
-                            System.out.println("Sequence: ");
-
-                            boolean showDeleted = false;
-                            if (parts.length == 2) {
-                                if (parts[1].equals("all")) {
-                                    showDeleted = true;
-                                    System.out.println("(deleted keys are followed with underscore '_')");
-                                }
-                            }
-                            isam.printInSequenceRW(showDeleted);
-                            break;
-                        }
-
-                        case "stats":
-                        case "s": {
-                            isam.printStats();
-                            break;
-                        }
-                        case "auto": {
-                            isam.autoReorganization = !isam.autoReorganization;
-                            if (isam.autoReorganization) {
-                                System.out.println("Auto reorganization enabled.");
-                            } else {
-                                System.out.println("Auto reorganization disabled.");
-                            }
-                            break;
-                        }
-                        case "reorganize": {
-                            boolean force = false;
-                            if (parts.length == 2 && parts[1].equals("f")) {
-                                force = true;
-                            }
-                            if (isam.reorganize(force) == 0) {
-                                System.out.println("Reorganized.");
-                            } else {
-                                if (!force) {
-                                    System.out.println("No need for reorganization. If you want to force it, use 'reorganize f'.");
-                                } else {
-                                    System.out.println("Not reorganized!");
-                                }
-                            }
-                            break;
-                        }
-
-                        case "flush":
-                        case "f": {
-                            isam.flush();
-                            System.out.println("Flushed.");
-                            break;
-                        }
-                        case "cleanup": {
-                            isam.cleanupFull();
-                            System.out.println("Cleaned up.");
-                            break;
-                        }
-                        case "help":
-                        case "h": {
-                            printCommands();
-                            break;
-                        }
-
-                        case "exit":
-                        case "e": {
-                            isam.flush();
-                            System.out.println("Bye.");
-                            return;
-                        }
-                        default:
-                            System.out.println("Unknown command: " + cmd);
-                    }
-                } catch (IllegalStateException | IllegalArgumentException e) {
-                    System.out.println("Error: " + e.getMessage());
-                } catch (IOException e) {
-                    System.out.println("IO error: " + e.getMessage());
-                    e.printStackTrace();
-                }
+                if (!processCommand(line)) break;  // Exits on 'exit' command
             }
         }
+    }
+
+    public boolean processCommand(String line) {
+        String[] parts = line.split("\\s+");
+        String cmd = parts[0].toLowerCase();
+
+        try {
+            switch (cmd) {
+                case "get":
+                case "g": {
+                    if (parts.length != 2) {
+                        System.out.println("Usage: [g|get] <key>");
+                        break;
+                    }
+                    int key = Integer.parseInt(parts[1]);
+                    TRecord rec = isam.get(key);
+                    if (rec == null) {
+                        System.out.println("Not found.");
+                    } else {
+                        System.out.println("Record: " + rec);
+                    }
+                    executedCommands.add(line);
+                    break;
+                }
+                case "insert":
+                case "i": {
+                    if (parts.length != 2 && parts.length != 5) {
+                        System.out.println("Usage: [i|insert] <key> <a?> <b?> <h?>");
+                        break;
+                    }
+
+                    double a = 1;
+                    double b = 2;
+                    double h = 3;
+                    if (parts.length == 5) {
+                        a = Double.parseDouble(parts[2]);
+                        b = Double.parseDouble(parts[3]);
+                        h = Double.parseDouble(parts[4]);
+                    }
+
+                    int key = Integer.parseInt(parts[1]);
+                    TRecord rec = new TRecord(key, a, b, h);
+                    int res = isam.insert(rec);
+                    System.out.println("Inserted key=" + key + ", result=" + res);
+                    executedCommands.add(line);
+                    break;
+                }
+                case "update":
+                case "u": {
+                    if (parts.length != 5) {
+                        System.out.println("Usage: [u|update] <key> <a> <b> <h>");
+                        break;
+                    }
+                    int key = Integer.parseInt(parts[1]);
+                    int a = Integer.parseInt(parts[2]);
+                    int b = Integer.parseInt(parts[3]);
+                    int h = Integer.parseInt(parts[4]);
+                    TRecord rec = new TRecord(key, a, b, h);
+                    int result = isam.update(rec);
+                    if (result == -1) {
+                        System.out.println("Not found.");
+                    } else {
+                        System.out.println("Record updated.");
+                    }
+                    executedCommands.add(line);
+                    break;
+                }
+                case "delete":
+                case "d": {
+                    if (parts.length != 2) {
+                        System.out.println("Usage: [d|delete] <key>");
+                        break;
+                    }
+                    int key = Integer.parseInt(parts[1]);
+                    int result = isam.delete(key);
+                    if (result == -1) {
+                        System.out.println("Not found.");
+                    } else {
+                        System.out.println("Record deleted.");
+                    }
+                    executedCommands.add(line);
+                    break;
+                }
+                case "random":
+                case "r": {
+                    if (parts.length != 2 && parts.length != 3 && parts.length != 4) {
+                        System.out.println("Usage:\n\t[r|random] <max>");
+                        System.out.println("\t[r|random] <min> <max> <amount?>");
+                        break;
+                    }
+
+                    int minRandom = Integer.parseInt(parts[1]);
+                    int maxRandom;
+                    if (parts.length == 2) {
+                        maxRandom = minRandom;
+                        minRandom = 0;
+                    } else {
+                        maxRandom = Integer.parseInt(parts[2]);
+                    }
+                    int amount = maxRandom - minRandom;
+                    if (parts.length == 4) {
+                        amount = Integer.parseInt(parts[3]);
+                    }
+                    int[] insertedKeys = new int[amount];
+                    Arrays.fill(insertedKeys, -1);
+                    RandomPool rp = new RandomPool(random, minRandom, maxRandom);
+
+                    int insertedAmount = isam.randomInsert(amount, rp, insertedKeys);
+
+                    if (insertedAmount == 0) {
+                        System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
+                        executedCommands.add(line);
+                        break;
+                    }
+
+                    System.out.println("Inserted " + insertedAmount + " random records: ");
+                    for (int k : insertedKeys) {
+                        if (k == -1) continue;
+                        System.out.print(k + " ");
+                    }
+                    System.out.println();
+
+                    executedCommands.add(line);
+                    break;
+                }
+
+                case "delete random":
+                case "dr": {
+                    if (parts.length != 2 && parts.length != 4) {
+                        System.out.println("Usage:\n\t[dr|delete random] <amount>");
+                        System.out.println("\t[dr|delete random] <min> <max> <amount>");
+                        break;
+                    }
+
+                    int amount, minRandom, maxRandom;
+
+                    if (parts.length == 2) {
+                        amount = Integer.parseInt(parts[1]);
+                        minRandom = 0;
+                        maxRandom = isam.insertedRecordAmount();
+                    } else {
+                        minRandom = Integer.parseInt(parts[1]);
+                        maxRandom = Integer.parseInt(parts[2]);
+                        amount = Integer.parseInt(parts[3]);
+                    }
+
+                    int[] deletedKeys = new int[amount];
+                    Arrays.fill(deletedKeys, -1);
+
+                    RandomPool rp = new RandomPool(random, minRandom, maxRandom);
+
+                    int deletedAmount = isam.randomDelete(amount, rp, deletedKeys);
+
+                    if (deletedAmount == 0) {
+                        System.out.println("Specified range of random numbers is exhausted. Try different `min`/`max` value.");
+                        executedCommands.add(line);
+                        break;
+                    }
+                    System.out.println("Randomly deleted " + deletedAmount + " records: ");
+                    for (int k : deletedKeys) {
+                        if (k == -1) continue;
+                        System.out.print(k + " ");
+                    }
+                    System.out.println();
+                    executedCommands.add(line);
+                    break;
+                }
+                case "print":
+                case "p": {
+                    isam.print();
+                    break;
+                }
+                case "print sequence":
+                case "ps": {
+                    if (parts.length != 1 && parts.length != 2) {
+                        System.out.println("Usage: [ps|print sequence] <all?>");
+                        break;
+                    }
+
+                    System.out.println("Sequence: ");
+
+                    boolean showDeleted = false;
+                    if (parts.length == 2) {
+                        if (parts[1].equals("all")) {
+                            showDeleted = true;
+                            System.out.println("(deleted keys are followed with underscore '_')");
+                        }
+                    }
+                    isam.printInSequenceRW(showDeleted);
+                    break;
+                }
+
+                case "stats":
+                case "s": {
+                    isam.printStats();
+                    break;
+                }
+                case "auto": {
+                    isam.autoReorganization = !isam.autoReorganization;
+                    if (isam.autoReorganization) {
+                        System.out.println("Auto reorganization enabled.");
+                    } else {
+                        System.out.println("Auto reorganization disabled.");
+                    }
+                    break;
+                }
+                case "reorganize": {
+                    boolean force = false;
+                    if (parts.length == 2 && parts[1].equals("f")) {
+                        force = true;
+                    }
+                    if (isam.reorganize(force) == 0) {
+                        System.out.println("Reorganized.");
+                    } else {
+                        if (!force) {
+                            System.out.println("No need for reorganization. If you want to force it, use 'reorganize f'.");
+                        } else {
+                            System.out.println("Not reorganized!");
+                        }
+                    }
+                    executedCommands.add(line);
+                    break;
+                }
+
+                case "flush":
+                case "f": {
+                    isam.flush();
+                    System.out.println("Flushed.");
+                    break;
+                }
+                case "cleanup": {
+                    isam.cleanupFull();
+                    executedCommands.clear();
+                    System.out.println("Cleaned up.");
+                    break;
+                }
+                case "help":
+                case "h": {
+                    printCommands();
+                    break;
+                }
+
+                case "exit":
+                case "e": {
+                    isam.flush();
+                    System.out.println("Bye.");
+                    return false;
+                }
+                default:
+                    System.out.println("Unknown command: " + cmd);
+            }
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            System.out.println("Error: " + e.getMessage());
+        } catch (IOException e) {
+            System.out.println("IO error: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return true;
     }
 }
