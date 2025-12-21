@@ -84,7 +84,7 @@ public class TRecordPage extends Page<TRecord> {
         data[pos].a = record.a;
         data[pos].b = record.b;
         data[pos].h = record.h;
-        return pos;
+        return 0;
     }
 
     @Override

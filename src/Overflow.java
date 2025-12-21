@@ -11,8 +11,8 @@ public class Overflow extends PagedFile<TRecordPage> {
         return new TRecordPage(pageSize);
     }
 
-    public TRecord findRecord(TRecord mainRecord, int key) throws IOException {
-        TRecord prev = mainRecord;
+    public TRecord findRecord(TRecord rootRecord, int key) throws IOException {
+        TRecord prev = rootRecord;
         while (true) {
             if (!prev.next.exists()) {
                 return null;
@@ -28,8 +28,8 @@ public class Overflow extends PagedFile<TRecordPage> {
         }
     }
 
-    public void insertToExistingLL(TRecord mainRecord, TRecord toInsert) throws IOException {
-        TRecord prev = mainRecord;
+    public void insertToExistingLL(TRecord rootRecord, TRecord toInsert) throws IOException {
+        TRecord prev = rootRecord;
         int prevCachedPageNum = cachedPage.pageNum;
         while (true) {
             TRecord curr = getRecordFromOverflow(prev.next);
@@ -56,8 +56,8 @@ public class Overflow extends PagedFile<TRecordPage> {
         }
     }
 
-    public void insertToNewLL(TRecord mainRecord, TRecord toInsert) throws IOException {
-        mainRecord.next = getLastAvailablePos();
+    public void insertToNewLL(TRecord rootRecord, TRecord toInsert) throws IOException {
+        rootRecord.next = getLastAvailablePos();
         insert(toInsert);
     }
 
@@ -68,8 +68,19 @@ public class Overflow extends PagedFile<TRecordPage> {
         return 0;
     }
 
-    public int deleteRecord(TRecord mainRecord, int key) throws IOException {
-        TRecord toDelete = findRecord(mainRecord, key);
+    public int updateRecord(TRecord rootRecord, TRecord updated) throws IOException {
+        TRecord toUpdate = findRecord(rootRecord, updated.key);
+        if (toUpdate.key != updated.key) {
+            throw new IOException("Key mismatch");
+        }
+        toUpdate.a = updated.a;
+        toUpdate.b = updated.b;
+        toUpdate.h = updated.h;
+        return 0;
+    }
+
+    public int deleteRecord(TRecord rootRecord, int key) throws IOException {
+        TRecord toDelete = findRecord(rootRecord, key);
         if (toDelete == null) {
             return -1;
         }

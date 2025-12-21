@@ -83,7 +83,9 @@ public class TRecord extends Record {
         if (deleted) {
             sb.append("[X] ");
         }
-        sb.append("[").append(key).append("|");
+        sb.append("[")
+            .append(key == -1 ? "-" : key)
+            .append("|");
         if (next.exists()) {
             sb.append(next.pageNum);
             sb.append(":");
@@ -92,7 +94,9 @@ public class TRecord extends Record {
             sb.append("-");
         }
         sb.append("]");
-//        sb.append("\t\t\ta=" + a + " b=" + b + " h=" + h);
+        sb.append(
+            String.format("\t\t\t\t\t(a=%.1f b=%.1f h=%.1f)", a, b, h)
+        );
         return sb.toString();
     }
 

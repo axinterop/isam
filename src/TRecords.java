@@ -20,6 +20,22 @@ public class TRecords extends PagedFile<TRecordPage> {
     // - 2 if overflow occurred and `record` was inserted to existing overflow linked list
     // - 3 if the key was smaller than the smallest one in records (needs index update)
     // - 4 if record was inserted into a new page (requires index insert)
+    public TRecord getRecord(int key, int pageNum) throws IOException {
+        TRecordPage trp = getPage(pageNum);
+
+        TRecord onPageRecord = trp.getRecord(key);
+        if (onPageRecord != null) {
+            return onPageRecord;
+        }
+        if (trp.isOverflown()) {
+            TRecord rootRecord = trp.findPrevious(key);
+            if (rootRecord != null) {
+                return overflow.findRecord(rootRecord, key);
+            }
+        }
+        return null;
+    }
+
     public int insert(TRecord recordToInsert, int pageNum) throws IOException {
         TRecordPage trp = getPage(pageNum);
         int trpRememberedFirstKey = trp.data[0].key;
@@ -48,12 +64,12 @@ public class TRecords extends PagedFile<TRecordPage> {
         }
 
         // Find previous record
-        TRecord mainRecord = trp.findPrevious(recordToInsert.key);
+        TRecord rootRecord = trp.findPrevious(recordToInsert.key);
 
         // After previous condition we know, that current page is full
         // If current page is also the last page and previousRecord is at last pos
         // - we do not add to overflow but add to new page
-        if (trp.pageNum == (pageAmount - 1) && trp.data[pageSize - 1].key == mainRecord.key) {
+        if (trp.pageNum == (pageAmount - 1) && trp.data[pageSize - 1].key == rootRecord.key) {
             TRecordPage newPage = getNewPage();
             newPage.insertAndSort(recordToInsert);
             fileInsertedAmount++;
@@ -61,29 +77,28 @@ public class TRecords extends PagedFile<TRecordPage> {
         }
 
         // If this record has link to overflow
-        if (mainRecord.next.exists()) {
-            overflow.insertToExistingLL(mainRecord, recordToInsert);
+        if (rootRecord.next.exists()) {
+            overflow.insertToExistingLL(rootRecord, recordToInsert);
             return 1;
         }
         // If this record has no link
-        overflow.insertToNewLL(mainRecord, recordToInsert);
+        overflow.insertToNewLL(rootRecord, recordToInsert);
         return 2;
     }
 
-    public TRecord getRecord(int key, int pageNum) throws IOException {
+    public int updateRecord(TRecord recordUpdate, int pageNum) throws IOException {
         TRecordPage trp = getPage(pageNum);
-
-        TRecord onPageRecord = trp.getRecord(key);
-        if (onPageRecord != null) {
-            return onPageRecord;
+        int r = trp.updateSoft(recordUpdate.key, recordUpdate);
+        if (r == 0) {
+            return 0;
         }
         if (trp.isOverflown()) {
-            TRecord mainRecord = trp.findPrevious(key);
-            if (mainRecord != null) {
-                return overflow.findRecord(mainRecord, key);
+            TRecord rootRecord = trp.findPrevious(recordUpdate.key);
+            if (rootRecord != null && rootRecord.next.exists()) {
+                return overflow.updateRecord(rootRecord, recordUpdate);
             }
         }
-        return null;
+        return -1;
     }
 
     public int deleteRecord(int key, int pageNum) throws IOException {
@@ -94,9 +109,9 @@ public class TRecords extends PagedFile<TRecordPage> {
             return 0;
         }
         if (trp.isOverflown()) {
-            TRecord mainRecord = trp.findPrevious(key);
-            if (mainRecord != null && mainRecord.next.exists()) {
-                return overflow.deleteRecord(mainRecord, key);
+            TRecord rootRecord = trp.findPrevious(key);
+            if (rootRecord != null && rootRecord.next.exists()) {
+                return overflow.deleteRecord(rootRecord, key);
             }
         }
         return -1;

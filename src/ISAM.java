@@ -89,6 +89,16 @@ public class ISAM {
         return 0;
     }
 
+    public int update(TRecord record) throws IOException {
+        if (autoReorganization) reorganize();
+
+        int pageNum = index.lookUpPageFor(record.key);
+        if (pageNum == -1) {
+            return -1;
+        }
+        return records.updateRecord(record, pageNum);
+    }
+
     public int delete(int key) throws IOException {
         if (autoReorganization) reorganize();
 
@@ -108,7 +118,11 @@ public class ISAM {
     }
 
     public int reorganize() throws IOException {
-        if (!needsReorganization()) {
+        return reorganize(false);
+    }
+
+    public int reorganize(boolean force) throws IOException {
+        if (!force && !needsReorganization()) {
             return -1;
         }
 
@@ -119,6 +133,8 @@ public class ISAM {
 
         TRecord.NextRecordPos rememberedPos = new TRecord.NextRecordPos();
 
+        int magic_number = (int) (pageSize * overflowThreshold);
+        int insertPageNum = 0;
         int newInserted = 0;
         for (int pi = 0; pi < records.pageAmount; pi++) {
             TRecordPage p = records.getPage(pi);
@@ -128,15 +144,19 @@ public class ISAM {
                     continue;
                 }
 
-                int insertPageNum = newInserted / pageSize;
                 rememberedPos.pagePos = r.next.pagePos;
                 rememberedPos.pageNum = r.next.pageNum;
                 r.next.reset();
 
+//                insertPageNum = newInserted / pageSize;
+                if (newInserted != 0 && newInserted % magic_number == 0) {
+                    insertPageNum++;
+                }
+
                 int result = newTRecords.insert(r, insertPageNum);
                 if (result != 0 && result != 3) throw new IllegalStateException("Insertion required additional calls.");
 
-                if (newInserted % pageSize == 0) {
+                if (newInserted == magic_number) {
                     IndexRecord ir = new IndexRecord(r.key, insertPageNum);
                     newIndex.insert(ir);
                 }
@@ -151,13 +171,17 @@ public class ISAM {
                         continue;
                     }
 
-                    insertPageNum = newInserted / pageSize;
                     r.next.reset();
+
+//                insertPageNum = newInserted / pageSize;
+                    if (newInserted != 0 && newInserted % magic_number == 0) {
+                        insertPageNum++;
+                    }
 
                     result = newTRecords.insert(r, insertPageNum);
                     if (result != 0 && result != 3) throw new IllegalStateException("Insertion required additional calls.");
 
-                    if (newInserted % pageSize == 0) {
+                    if (newInserted == magic_number) {
                         IndexRecord ir = new IndexRecord(r.key, insertPageNum);
                         newIndex.insert(ir);
                     }
@@ -195,6 +219,8 @@ public class ISAM {
         records.pageWriteCount += afterReorganization.recordsWrites;
         records.overflow.pageReadCount += afterReorganization.overflowReads;
         records.overflow.pageWriteCount += afterReorganization.overflowWrites;
+
+        print();
 
         return 0;
     }
