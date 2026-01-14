@@ -7,7 +7,7 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 3) {
-            System.out.println("Usage: java Main <pageSize> <overflowThreshold> <deleteThreshold> [input_file]");
+            System.out.println("Usage: java Main <pageSize> <overflowThreshold> <deleteThreshold> [input_file?]");
             System.exit(1);
         }
 
@@ -26,12 +26,13 @@ public class Main {
 
         ISAMShell shell = new ISAMShell(isam);
 
-        boolean isInteractive = System.console() != null;
+        boolean isInteractive = inputFile == null;
 
         if (isInteractive) {
             System.out.println("No file detected. Entering interactive mode");
             shell.run();
         } else {
+            shell.inputFilename = inputFile;
             processFile(shell, inputFile);
             System.out.println("\nInput file processed. Entering interactive mode");
             shell.run();

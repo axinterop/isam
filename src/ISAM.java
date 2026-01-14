@@ -56,7 +56,7 @@ public class ISAM {
     }
 
     private int _insert(TRecord record) throws IOException {
-        if (autoReorganization) reorganize(false);
+        if (autoReorganization) _reorganize(false);
 
         if (record.key < 0) {
             throw new IllegalArgumentException("Invalid key (negative)");
@@ -120,7 +120,7 @@ public class ISAM {
     }
 
     private int _delete(int key) throws IOException {
-        if (autoReorganization) reorganize(false);
+        if (autoReorganization) _reorganize(false);
 
         int pageNum = index.lookUpPageFor(key);
         if (pageNum == -1) {
@@ -271,11 +271,6 @@ public class ISAM {
                 deletedKeys[i++] = value;
             } catch (Exception ignored) {
             }
-            if (autoReorganization) {
-                int r = _reorganize(false);
-                if (r != -1)
-                    System.out.println("Database has been reorganized (automatically).");
-            }
         }
         operationsStats.add(getStats());
         return i;
@@ -306,6 +301,72 @@ public class ISAM {
             return 0;
         }
         return (double) deletedRecordAmount() / insertedRecordAmount();
+    }
+
+    public void exportStatsToCSV(String outputFilename, ArrayList<String> executedCommands) throws IOException {
+        if (executedCommands.isEmpty()) {
+            System.out.println("No commands executed. Skipping CSV export.");
+            return;
+        }
+
+        File resultsDir = new File("results");
+        if (!resultsDir.exists()) {
+            resultsDir.mkdirs();
+        }
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
+            .ofPattern("yyyy_MM_dd_HH_mm");
+        String timestamp = now.format(formatter);
+
+        String name;
+        if (outputFilename != null) {
+            name = new java.io.File(outputFilename).getName();
+        } else {
+            name = "run";
+        }
+
+        String filename = String.format("results/%s_%s_%d_%.1f_%.1f.csv", timestamp, name, pageSize,
+            overflowThreshold, deletionThreshold);
+
+        try (java.io.FileWriter writer = new java.io.FileWriter(filename)) {
+            writer.write(
+                "Operation," +
+                    "Index Reads,Index Writes," +
+                    "Records Reads,Records Writes," +
+                    "Overflow Reads,Overflow Writes," +
+                    "Total Reads,Total Writes," +
+                    "Accumulative Reads,Accumulative Writes\n"
+            );
+
+            int cumulativeTotalReads = 0;
+            int cumulativeTotalWrites = 0;
+
+            for (int i = 0; i < executedCommands.size(); i++) {
+                String command = executedCommands.get(i);
+                IOStats delta = operationsStats.get(i + 1).minus(operationsStats.get(i));
+
+                cumulativeTotalReads += delta.totalReads();
+                cumulativeTotalWrites += delta.totalWrites();
+
+                writer.write(String.format(
+                    "%s," +
+                        "%d,%d," +
+                        "%d,%d," +
+                        "%d,%d," +
+                        "%d,%d," +
+                        "%d,%d\n",
+                    command,
+                    delta.indexReads, delta.indexWrites,
+                    delta.recordsReads, delta.recordsWrites,
+                    delta.overflowReads, delta.overflowWrites,
+                    delta.totalReads(), delta.totalWrites(),
+                    cumulativeTotalReads, cumulativeTotalWrites
+                ));
+            }
+        }
+
+        System.out.println("CSV exported to: " + filename);
     }
 
     // TODO: REMOVE (DEBUG)

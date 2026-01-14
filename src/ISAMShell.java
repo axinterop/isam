@@ -10,6 +10,8 @@ public class ISAMShell {
 
     private final Random random = new Random(12345);
 
+    public String inputFilename = null;
+
     ArrayList<String> executedCommands;
 
     public ISAMShell(ISAM isam) {
@@ -33,6 +35,7 @@ public class ISAMShell {
         System.out.println("  reorganize <[f]?>                         - use 'f' to force reorganization");
         System.out.println();
         System.out.println("  cleanup");
+        System.out.println("  save <filename?>                          - export operation statistics to CSV");
         System.out.println("  [f]lush");
         System.out.println("  [h]elp - show commands");
         System.out.println("  [e]xit");
@@ -74,6 +77,7 @@ public class ISAMShell {
                 if (line.isEmpty()) continue;
 
                 if (!processCommand(line)) break;  // Exits on 'exit' command
+
             }
         }
     }
@@ -300,6 +304,19 @@ public class ISAMShell {
                     break;
                 }
 
+                case "save" : {
+                    if (parts.length > 2) {
+                        System.out.println("Usage: save <filename?>");
+                        break;
+                    }
+                    if (parts.length == 2) {
+                        saveCSV(parts[1]);
+                    } else {
+                        saveCSV(inputFilename);
+                    }
+                    break;
+                }
+
                 case "flush":
                 case "f": {
                     isam.flush();
@@ -334,5 +351,13 @@ public class ISAMShell {
             e.printStackTrace();
         }
         return true;
+    }
+
+    private void saveCSV(String filename) {
+        try {
+            isam.exportStatsToCSV(filename, executedCommands);
+        } catch (IOException e) {
+            System.out.println("Error exporting CSV: " + e.getMessage());
+        }
     }
 }
